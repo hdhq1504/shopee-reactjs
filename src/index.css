@@ -1,7 +1,16 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
   --fill-bg-logo: #ee4d2d;
+  --color-orange: #ee4d2d;
+}
+
+@utility container {
+  max-width: 80rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
 
 html {
@@ -10,6 +19,6 @@ html {
 }
 
 body {
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-weight: 400;
 }

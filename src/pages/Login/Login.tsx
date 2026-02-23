@@ -13,8 +13,8 @@ export default function Login() {
   })
 
   return (
-    <div className='bg-[#ee4d2d]'>
-      <div className='max-w-7xl mx-auto px-4'>
+    <div className='bg-orange'>
+      <div className='container'>
         <div className='grid grid-cols-1 lg:grid-cols-5 py-12 lg:py-32 lg:pr-10'>
           <div className='lg:col-span-2 lg:col-start-4'>
             <form className='p-10 rounded bg-white shadow-sm' onSubmit={onSubmit}>
@@ -41,7 +41,7 @@ export default function Login() {
               <div className='mt-3'>
                 <button
                   type='submit'
-                  className='w-full text-center py-4 px-2 uppercase bg-[#ee4d2d] text-white text-sm hover:bg-[#f05d40]'
+                  className='w-full text-center py-4 px-2 uppercase bg-orange text-white text-sm hover:bg-[#f05d40]'
                 >
                   Đăng nhập
                 </button>
