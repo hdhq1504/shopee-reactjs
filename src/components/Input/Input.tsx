@@ -30,7 +30,7 @@ export default function Input({
         autoComplete={autoComplete}
         {...register(name, rules)}
       />
-      <div className='mt-1 text-red-600 min-h-[1.25rem] text-sm'>{errorMessage}</div>
+      <div className='mt-1 text-red-600 min-h-5 text-sm'>{errorMessage}</div>
     </div>
   )
 }
