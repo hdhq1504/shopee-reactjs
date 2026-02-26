@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
-import path from '../../../constants/path'
-import Input from '../../../components/Input'
-import Button from '../../../components/Button'
+import path from '~/constants/path'
+import Input from '~/components/Input'
+import Button from '~/components/Button'
 
 export default function AsideFilter() {
   return (
