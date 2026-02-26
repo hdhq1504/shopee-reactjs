@@ -5,7 +5,7 @@ export default function SortProductList() {
         <div className='flex items-center flex-wrap gap-2'>
           <div>Sắp xếp theo</div>
           <button className='h-8 px-4 capitalize bg-orange text-white text-sm hover:bg-orange/80 text-center'>
-            Phổ biển
+            Phổ biến
           </button>
           <button className='h-8 px-4 capitalize bg-white text-black text-sm hover:bg-slate-100 text-center'>
             Mới nhất
