@@ -26,7 +26,7 @@ export default function RatingStars({ queryConfig }: Props) {
         .map((_, index) => (
           <li className='py-1 pl-2' key={index}>
             <div
-              className='flex items-center text-sm cursor-pointer'
+              className='flex cursor-pointer items-center text-sm'
               onClick={() => handleFilterStar(5 - index)}
               tabIndex={0}
               role='button'
