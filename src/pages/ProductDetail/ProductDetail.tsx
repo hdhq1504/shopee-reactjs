@@ -4,12 +4,13 @@ import { useParams } from 'react-router-dom'
 import productApi from '~/apis/product.api'
 import InputNumber from '~/components/InputNumber'
 import ProductRating from '~/components/ProductRating'
-import { formatCurrency, formatNumberToSocialStyle, rateSale } from '~/utils/utils'
+import { formatCurrency, formatNumberToSocialStyle, getIdFromNameId, rateSale } from '~/utils/utils'
 import DOMPurify from 'dompurify'
 import type { Product } from '~/types/product.type'
 
 export default function ProductDetail() {
-  const { id } = useParams()
+  const { nameId } = useParams()
+  const id = getIdFromNameId(nameId as string)
   const { data: productDetailData } = useQuery({
     queryKey: ['product', id],
     queryFn: () => productApi.getProductDetail(id as string)
