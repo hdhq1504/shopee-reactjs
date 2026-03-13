@@ -2,7 +2,7 @@ import type { Purchase, PurchaseListStatus } from '~/types/purchase.type'
 import type { SuccessResponse } from '~/types/utils.type'
 import http from '~/utils/http'
 
-const URL = 'purchase'
+const URL = 'purchases'
 
 const purchaseApi = {
   addToCart(body: { product_id: string; buy_count: number }) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import productApi from '~/apis/product.api'
 import ProductRating from '~/components/ProductRating'
@@ -8,8 +8,12 @@ import { formatCurrency, formatNumberToSocialStyle, getIdFromNameId, rateSale } 
 import DOMPurify from 'dompurify'
 import type { Product as ProductType } from '~/types/product.type'
 import Product from '~/pages/ProductList/components/Product'
+import purchaseApi from '~/apis/purchase.api'
+import { purchasesStatus } from '~/constants/purchase'
+import { toast } from 'react-toastify'
 
 export default function ProductDetail() {
+  const queryClient = useQueryClient()
   const [buyCount, setBuyCount] = useState(1)
   const { nameId } = useParams()
   const id = getIdFromNameId(nameId as string)
@@ -35,6 +39,8 @@ export default function ProductDetail() {
     staleTime: 3 * 60 * 1000,
     enabled: Boolean(product)
   })
+
+  const addToCartMutation = useMutation({ mutationFn: purchaseApi.addToCart })
 
   useEffect(() => {
     if (product && product.images.length > 0) {
@@ -84,6 +90,18 @@ export default function ProductDetail() {
 
   const handleBuyCount = (value: number) => {
     setBuyCount(value)
+  }
+
+  const addToCart = () => {
+    addToCartMutation.mutate(
+      { buy_count: buyCount, product_id: product?._id as string },
+      {
+        onSuccess: (data) => {
+          toast.success(data.data.message)
+          queryClient.invalidateQueries({ queryKey: ['purchases', { status: purchasesStatus.inCart }] })
+        }
+      }
+    )
   }
 
   if (!product) return null
@@ -187,7 +205,10 @@ export default function ProductDetail() {
                 <div className='ml-6 text-sm text-gray-500'>{product.quantity} sản phẩm có sẵn</div>
               </div>
               <div className='mt-8 flex items-center'>
-                <button className='border-orange bg-orange/10 text-orange hover:bg-orange/5 flex h-12 items-center justify-center rounded-sm border px-5 capitalize shadow-sm'>
+                <button
+                  onClick={addToCart}
+                  className='border-orange bg-orange/10 text-orange hover:bg-orange/5 flex h-12 items-center justify-center rounded-sm border px-5 capitalize shadow-sm'
+                >
                   <img
                     alt='icon-add-to-cart'
                     className='stroke-orange text-orange mr-[10px] h-5 w-5 fill-current'
