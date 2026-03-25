@@ -7,6 +7,7 @@ import classNames from 'classnames'
 import RatingStars from '~/pages/ProductList/components/RatingStars'
 import { omit } from 'lodash'
 import InputNumber from '~/components/InputNumber'
+import InputV2 from '~/components/InputV2'
 import { useForm, Controller } from 'react-hook-form'
 import { schema, type Schema } from '~/utils/rules'
 import { yupResolver } from '@hookform/resolvers/yup'
@@ -151,6 +152,18 @@ export default function AsideFilter({ queryConfig, categories }: Props) {
                   )
                 }}
               />
+              {/* <InputV2
+                control={control}
+                name='price_min'
+                type='number'
+                className='grow'
+                placeholder='₫ TỪ'
+                classNameInput='p-1 w-full outline-none border border-gray-300 focus:border-gray-500 rounded-sm focus:shadow-sm'
+                classNameError='hidden'
+                onChange={() => {
+                  trigger('price_max')
+                }}
+              /> */}
               <div className='mx-2 mt-2 shrink-0'>-</div>
               <Controller
                 control={control}
