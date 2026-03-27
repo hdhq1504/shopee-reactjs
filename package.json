@@ -23,6 +23,7 @@
     "axios": "^1.13.5",
     "classnames": "^2.5.1",
     "dompurify": "^3.3.2",
+    "immer": "^11.1.4",
     "lodash": "^4.17.23",
     "motion": "^12.34.3",
     "react": "^19.2.0",
