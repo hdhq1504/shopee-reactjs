@@ -91,7 +91,7 @@ export default function SortProductList({ queryConfig, pageSize }: Props) {
             <span className='text-orange'>{page}</span>
             <span>/{pageSize}</span>
           </div>
-          <div className='ml-2'>
+          <div className='ml-2 flex'>
             {page === 1 ? (
               <span className='flex h-8 w-9 cursor-not-allowed items-center justify-center rounded-tl-sm rounded-bl-sm bg-white/60 shadow hover:bg-slate-100'>
                 <svg
@@ -126,7 +126,7 @@ export default function SortProductList({ queryConfig, pageSize }: Props) {
               </Link>
             )}
             {page === pageSize ? (
-              <span className='flex h-8 w-9 cursor-not-allowed items-center justify-center rounded-tl-sm rounded-bl-sm bg-white/60 shadow hover:bg-slate-100'>
+              <span className='flex h-8 w-9 cursor-not-allowed items-center justify-center rounded-tr-sm rounded-br-sm bg-white/60 shadow hover:bg-slate-100'>
                 <svg
                   xmlns='http://www.w3.org/2000/svg'
                   fill='none'
@@ -144,7 +144,7 @@ export default function SortProductList({ queryConfig, pageSize }: Props) {
                   pathname: path.home,
                   search: createSearchParams({ ...queryConfig, page: (page + 1).toString() }).toString()
                 }}
-                className='flex h-8 w-9 items-center justify-center rounded-tl-sm rounded-bl-sm bg-white shadow hover:bg-slate-100'
+                className='flex h-8 w-9 items-center justify-center rounded-tr-sm rounded-br-sm bg-white shadow hover:bg-slate-100'
               >
                 <svg
                   xmlns='http://www.w3.org/2000/svg'
