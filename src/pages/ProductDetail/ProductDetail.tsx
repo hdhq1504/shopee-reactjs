@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import productApi from '~/apis/product.api'
 import ProductRating from '~/components/ProductRating'
 import QuantityController from '~/components/QuantityController'
@@ -11,6 +11,7 @@ import Product from '~/pages/ProductList/components/Product'
 import purchaseApi from '~/apis/purchase.api'
 import { purchasesStatus } from '~/constants/purchase'
 import { toast } from 'react-toastify'
+import path from '~/constants/path'
 
 export default function ProductDetail() {
   const queryClient = useQueryClient()
@@ -41,6 +42,7 @@ export default function ProductDetail() {
   })
 
   const addToCartMutation = useMutation({ mutationFn: purchaseApi.addToCart })
+  const navigate = useNavigate()
 
   useEffect(() => {
     if (product && product.images.length > 0) {
@@ -102,6 +104,16 @@ export default function ProductDetail() {
         }
       }
     )
+  }
+
+  const buyNow = async () => {
+    const res = await addToCartMutation.mutateAsync({ buy_count: buyCount, product_id: product?._id as string })
+    const purchase = res.data.data
+    navigate(path.cart, {
+      state: {
+        purchaseId: purchase._id
+      }
+    })
   }
 
   if (!product) return null
@@ -216,7 +228,10 @@ export default function ProductDetail() {
                   ></img>
                   Thêm vào giỏ hàng
                 </button>
-                <button className='bg-orange hover:bg-orange/90 ml-4 flex h-12 min-w-20 items-center justify-center rounded-sm px-5 text-white capitalize shadow-sm outline-none'>
+                <button
+                  onClick={buyNow}
+                  className='bg-orange hover:bg-orange/90 ml-4 flex h-12 min-w-20 items-center justify-center rounded-sm px-5 text-white capitalize shadow-sm outline-none'
+                >
                   Mua ngay
                 </button>
               </div>
