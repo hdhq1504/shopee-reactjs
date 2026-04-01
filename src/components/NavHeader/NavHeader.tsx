@@ -6,7 +6,7 @@ import Popover from '~/components/Popover'
 import path from '~/constants/path'
 import { purchasesStatus } from '~/constants/purchase'
 import { AppContext } from '~/contexts/app.context'
-import userImage from '~/assets/images/user.svg'
+import { getAvatarUrl } from '~/utils/utils'
 
 export default function NavHeader() {
   const { isAuthenticated, setIsAuthenticated, setProfile, profile } = useContext(AppContext)
@@ -88,7 +88,7 @@ export default function NavHeader() {
           }
         >
           <div className='mr-2 h-6 w-6 shrink-0'>
-            <img src={profile?.avatar || userImage} alt='avatar' className='h-full w-full rounded-full object-cover' />
+            <img src={getAvatarUrl(profile?.avatar)} alt='avatar' className='h-full w-full rounded-full object-cover' />
           </div>
           <div>{profile?.email}</div>
         </Popover>
