@@ -1,28 +1,45 @@
 import { yupResolver } from '@hookform/resolvers/yup'
-import { useQuery } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useContext, useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
+import { toast } from 'react-toastify'
 import userApi from '~/apis/user.api'
 import Button from '~/components/Button'
 import Input from '~/components/Input'
 import InputNumber from '~/components/InputNumber'
+import { AppContext } from '~/contexts/app.context'
 import DateSelect from '~/pages/User/components/DateSelect'
+import { setProfileToLS } from '~/utils/auth'
 import { userSchema, type UserSchema } from '~/utils/rules'
 
 type FormData = Pick<UserSchema, 'name' | 'address' | 'phone' | 'date_of_birth' | 'avatar'>
+type FormInput = {
+  name: string | undefined
+  phone: string | undefined
+  address: string | undefined
+  avatar: string | undefined
+  date_of_birth: Date | undefined
+}
 
 const profileSchema = userSchema.pick(['name', 'address', 'phone', 'date_of_birth', 'avatar'])
 
 export default function Profile() {
+  const { setProfile } = useContext(AppContext)
+  const { data: profileData, refetch } = useQuery({
+    queryKey: ['profile'],
+    queryFn: userApi.getProfile
+  })
+  const profile = profileData?.data.data
+  const updateProfileMutation = useMutation({
+    mutationFn: userApi.updateProfile
+  })
   const {
     register,
     control,
     formState: { errors },
     handleSubmit,
-    setValue,
-    watch,
-    setError
-  } = useForm<FormData>({
+    setValue
+  } = useForm<FormInput, unknown, FormData>({
     defaultValues: {
       name: '',
       phone: '',
@@ -32,11 +49,6 @@ export default function Profile() {
     },
     resolver: yupResolver(profileSchema)
   })
-  const { data: profileData } = useQuery({
-    queryKey: ['profile'],
-    queryFn: userApi.getProfile
-  })
-  const profile = profileData?.data.data
 
   useEffect(() => {
     if (profile) {
@@ -49,8 +61,14 @@ export default function Profile() {
   }, [profile, setValue])
 
   const onSubmit = handleSubmit(async (data) => {
-    console.log(data)
-    // await updateProfileMutation.mutateAsync({})
+    const res = await updateProfileMutation.mutateAsync({
+      ...data,
+      date_of_birth: data.date_of_birth?.toISOString()
+    })
+    setProfile(res.data.data)
+    setProfileToLS(res.data.data)
+    refetch()
+    toast.success(res.data.message)
   })
 
   return (
@@ -120,7 +138,7 @@ export default function Profile() {
             <div className='truncate pt-3 capitalize sm:w-[20%] sm:text-right' />
             <div className='sm:w-[80%] sm:pl-5'>
               <Button
-                className='bg-orange hover:bg-orange/80 flex h-9 items-center px-5 text-center text-sm text-white'
+                className='bg-orange hover:bg-orange/80 flex h-9 items-center rounded-sm px-5 text-center text-sm text-white'
                 type='submit'
               >
                 Lưu

@@ -6,6 +6,7 @@ import Popover from '~/components/Popover'
 import path from '~/constants/path'
 import { purchasesStatus } from '~/constants/purchase'
 import { AppContext } from '~/contexts/app.context'
+import userImage from '~/assets/images/user.svg'
 
 export default function NavHeader() {
   const { isAuthenticated, setIsAuthenticated, setProfile, profile } = useContext(AppContext)
@@ -87,11 +88,7 @@ export default function NavHeader() {
           }
         >
           <div className='mr-2 h-6 w-6 shrink-0'>
-            <img
-              src='https://cf.shopee.vn/file/d04ea22afab6e6d250a370d7ccc2e675_tn'
-              alt='avatar'
-              className='h-full w-full rounded-full object-cover'
-            />
+            <img src={profile?.avatar || userImage} alt='avatar' className='h-full w-full rounded-full object-cover' />
           </div>
           <div>{profile?.email}</div>
         </Popover>

@@ -5,19 +5,22 @@ import type { QueryConfig } from '~/hooks/useQueryConfig'
 import type { Category } from '~/types/category.type'
 import classNames from 'classnames'
 import RatingStars from '~/pages/ProductList/components/RatingStars'
-import { omit } from 'lodash'
+import { isUndefined, omit } from 'lodash'
 import InputNumber from '~/components/InputNumber'
 import { useForm, Controller } from 'react-hook-form'
 import { schema, type Schema } from '~/utils/rules'
 import { yupResolver } from '@hookform/resolvers/yup'
-import type { NoUndefinedField } from '~/types/utils.type'
 
 interface Props {
   queryConfig: QueryConfig
   categories: Category[]
 }
 
-type FormData = NoUndefinedField<Pick<Schema, 'price_max' | 'price_min'>>
+type FormData = {
+  price_min: string | undefined
+  price_max: string | undefined
+}
+type FormOutput = Pick<Schema, 'price_max' | 'price_min'>
 
 const priceSchema = schema.pick(['price_min', 'price_max'])
 
@@ -28,7 +31,7 @@ export default function AsideFilter({ queryConfig, categories }: Props) {
     handleSubmit,
     trigger,
     formState: { errors }
-  } = useForm<FormData>({
+  } = useForm<FormData, unknown, FormOutput>({
     defaultValues: {
       price_min: '',
       price_max: ''
@@ -38,13 +41,17 @@ export default function AsideFilter({ queryConfig, categories }: Props) {
   })
   const navigate = useNavigate()
   const onSubmit = handleSubmit((data) => {
-    navigate({
-      pathname: path.home,
-      search: createSearchParams({
+    const searchParams = Object.fromEntries(
+      Object.entries({
         ...queryConfig,
         price_max: data.price_max,
         price_min: data.price_min
-      }).toString()
+      }).filter(([, value]) => !isUndefined(value))
+    ) as Record<string, string>
+
+    navigate({
+      pathname: path.home,
+      search: createSearchParams(searchParams).toString()
     })
   })
   const handleRemoveAll = () => {
