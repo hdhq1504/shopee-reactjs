@@ -7,6 +7,7 @@ import userApi from '~/apis/user.api'
 import Button from '~/components/Button'
 import Input from '~/components/Input'
 import InputNumber from '~/components/InputNumber'
+import config from '~/constants/config'
 import { AppContext } from '~/contexts/app.context'
 import DateSelect from '~/pages/User/components/DateSelect'
 import type { ErrorResponse } from '~/types/utils.type'
@@ -53,8 +54,7 @@ export default function Profile() {
     handleSubmit,
     setValue,
     watch,
-    setError,
-    clearErrors
+    setError
   } = useForm<FormInput, unknown, FormData>({
     defaultValues: {
       name: '',
@@ -124,34 +124,14 @@ export default function Profile() {
 
   const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const fileFromLocal = event.target.files?.[0]
-    if (!fileFromLocal) return
-
-    const isValidType = ['image/jpeg', 'image/png'].includes(fileFromLocal.type)
-    if (!isValidType) {
-      setFile(undefined)
-      setError('avatar', {
-        message: 'Vui lòng chọn ảnh định dạng .jpeg hoặc .png',
-        type: 'Manual'
+    fileInputRef.current?.setAttribute('value', '')
+    if (fileFromLocal && (fileFromLocal.size >= config.maxSizeUploadAvatar || !fileFromLocal.type.includes('image'))) {
+      toast.error(`Dụng lượng file tối đa 1 MB. Định dạng:.JPEG, .PNG`, {
+        position: 'top-center'
       })
-      toast.error('Ảnh đại diện phải có định dạng .jpeg hoặc .png')
-      event.target.value = ''
-      return
+    } else {
+      setFile(fileFromLocal)
     }
-
-    if (fileFromLocal.size > 1024 * 1024) {
-      setFile(undefined)
-      setError('avatar', {
-        message: 'Dung lượng ảnh tối đa là 1 MB',
-        type: 'Manual'
-      })
-      toast.error('Dung lượng ảnh tối đa là 1 MB')
-      event.target.value = ''
-      return
-    }
-
-    clearErrors('avatar')
-    setValue('avatar', fileFromLocal.name, { shouldValidate: true, shouldDirty: true })
-    setFile(fileFromLocal)
   }
 
   const handleUpload = () => {
@@ -242,7 +222,17 @@ export default function Profile() {
                 className='h-full w-full rounded-full object-cover'
               />
             </div>
-            <input className='hidden' type='file' accept='.jpg,.jpeg,.png' ref={fileInputRef} onChange={onFileChange} />
+            <input
+              className='hidden'
+              type='file'
+              accept='.jpg,.jpeg,.png'
+              ref={fileInputRef}
+              onChange={onFileChange}
+              onClick={(event) => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ;(event.target as any).value = null
+              }}
+            />
             <input type='hidden' {...register('avatar')} />
             <button
               className='flex h-10 items-center justify-end rounded-sm border bg-white px-6 text-sm text-gray-600 shadow-sm'
