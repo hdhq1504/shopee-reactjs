@@ -9,12 +9,7 @@ Commit này sửa và hoàn thiện phần **Profile** thêm một bước nữa
 3. Hiển thị avatar và email thật của user ở `NavHeader` và `UserSideNav`.
 4. Sửa một lỗi typing ở `AsideFilter` khi tạo query string lọc giá.
 
-Ngoài ra commit này cũng thêm một số file tài liệu như:
-
-- `api-document.md`
-- 2 file explain trong thư mục `docs`
-
-> 💡 Nếu commit `da42922` mới dừng ở bước “đổ dữ liệu lên form”, thì commit này đi tiếp bước “bấm Lưu để cập nhật profile thật”.
+> 💡 Nếu commit trước mới dừng ở bước "đổ dữ liệu lên form", thì commit này đi tiếp bước "bấm Lưu để cập nhật profile thật".
 
 ---
 
@@ -31,7 +26,6 @@ Ngoài ra commit này cũng thêm một số file tài liệu như:
 | `src/assets/images/user.svg` | Tạo mới | Ảnh mặc định khi user chưa có avatar |
 | `src/pages/ProductList/components/AsideFilter/AsideFilter.tsx` | Sửa | Sửa kiểu dữ liệu và cách tạo search params |
 | `index.html` | Sửa nhỏ | Đổi tiêu đề tab trình duyệt |
-| `api-document.md` | Tạo mới | Tài liệu mô tả API |
 
 ---
 
@@ -39,62 +33,107 @@ Ngoài ra commit này cũng thêm một số file tài liệu như:
 
 ### Lỗi cũ là gì?
 
-Ở commit trước, 2 ô select `tháng` và `năm` đang bị sai:
+Ở commit trước, cả 3 ô select `ngày`, `tháng`, `năm` đều có chung một vấn đề:
 
-- Cả 2 đều để `name='date'`
-- `value` của month và year cũng đang lấy nhầm từ `date.date`
+```tsx
+// TRƯỚC — BUG: cả 3 select đều dùng name='date'
+<select name='date' value={value?.getDate() || date.date} ...>  {/* Ngày ✅ */}
+<select name='date' value={value?.getDate() || date.date} ...>  {/* Tháng ❌ — nhầm! */}
+<select name='date' value={value?.getDate() || date.date} ...>  {/* Năm ❌ — nhầm! */}
+```
 
-Điều đó dẫn đến việc:
+Điều đó dẫn đến:
 
-```text
-User đổi tháng
+```
+User đổi ô "Tháng" từ 3 sang 8
    ↓
-Component lại hiểu là đang đổi ngày
+event.target.name vẫn là 'date'
    ↓
-Ngày sinh bị sai
+handleChange hiểu đang đổi ngày thay vì tháng
+   ↓
+Ngày sinh bị sai hoàn toàn
 ```
 
 ### Commit này sửa gì?
 
-#### Sửa `name` của từng select:
+#### Sửa 1: `name` của từng select khác nhau
 
 ```tsx
-name='month'
-name='year'
+// SAU — mỗi select có name riêng
+<select name='date' ...>   {/* Ngày */}
+<select name='month' ...>  {/* Tháng */}
+<select name='year' ...>   {/* Năm */}
 ```
 
-thay vì cả 3 ô đều dùng `name='date'`.
-
-#### Sửa `value` cho đúng field:
+#### Sửa 2: `value` cho đúng field
 
 ```tsx
+// Ngày — dùng getDate()
+value={value?.getDate() || date.date}
+
+// Tháng — dùng getMonth() + toán tử ??
 value={value?.getMonth() ?? date.month}
+
+// Năm — dùng getFullYear() + toán tử ??
 value={value?.getFullYear() ?? date.year}
 ```
 
-### Sửa thêm ở `handleChange`
+#### ⭐ Tại sao `month` và `year` dùng `??` thay vì `||`?
 
-```ts
-const { value: valueFromSelect, name } = event.target
-const newDate = {
-  date: value?.getDate() || date.date,
-  month: value?.getMonth() || date.month,
-  year: value?.getFullYear() || date.year,
-  [name]: Number(valueFromSelect)
+Đây là một bug rất tinh vi:
+
+| Toán tử | Trả về vế phải khi vế trái là... |
+|---------|----------------------------------|
+| `\|\|` | `false`, `0`, `""`, `null`, `undefined` |
+| `??` | Chỉ `null`, `undefined` |
+
+Mà `getMonth()` trả về **`0`** cho tháng 1 (JavaScript đếm tháng từ 0). Nếu dùng `||`:
+
+```typescript
+value?.getMonth() || date.month
+// Tháng 1: getMonth() = 0 (falsy!) → || sẽ lấy date.month thay vì 0
+// → Hiển thị sai tháng!
+
+value?.getMonth() ?? date.month
+// Tháng 1: getMonth() = 0 (nhưng không phải null/undefined) → ?? giữ nguyên 0
+// → Hiển thị đúng tháng 1 ✅
+```
+
+> 💡 **Bài học:** Khi giá trị hợp lệ có thể là `0` hoặc `""`, luôn dùng `??` thay vì `||`.
+
+#### Sửa 3: `handleChange` — Computed Property Name
+
+```typescript
+const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+  const { value: valueFromSelect, name } = event.target
+  const newDate = {
+    date: value?.getDate() || date.date,     // Giữ nguyên ngày
+    month: value?.getMonth() || date.month,   // Giữ nguyên tháng
+    year: value?.getFullYear() || date.year,   // Giữ nguyên năm
+    [name]: Number(valueFromSelect)            // ← CHỈ GHI ĐÈ field đang thay đổi
+  }
+  setDate(newDate)
+  onChange && onChange(new Date(newDate.year, newDate.month, newDate.date))
 }
 ```
 
-### Ý nghĩa
+**`[name]` là kỹ thuật gì?** — **Computed Property Name** trong JavaScript:
 
-Khi user đổi 1 ô select:
+```typescript
+const name = 'month'
+const obj = { [name]: 8 }
+// Tương đương: { month: 8 }
+```
 
-1. Giữ nguyên 2 phần còn lại
-2. Chỉ cập nhật phần đang thay đổi
-3. Tạo lại `Date` mới chính xác
+Khi user đổi ô "Tháng" sang tháng 8:
+1. `name = 'month'`, `valueFromSelect = '7'` (vì JS đếm từ 0)
+2. `newDate` ban đầu giữ nguyên date và year cũ
+3. `[name]: Number(valueFromSelect)` → ghi đè `month: 7`
+4. Tạo `new Date(2001, 7, 15)` → 15/08/2001 ✅
 
-### Thêm `useEffect` để đồng bộ lại state nội bộ
+#### Sửa 4: `useEffect` đồng bộ state nội bộ
 
-```ts
+```typescript
 useEffect(() => {
   if (value) {
     setDate({
@@ -106,25 +145,19 @@ useEffect(() => {
 }, [value])
 ```
 
-### Tại sao cần `useEffect` này?
+**Tại sao cần?** `DateSelect` có state nội bộ `date`, nhưng giá trị thật đến từ prop `value`. Khi bên ngoài thay đổi `value` (ví dụ: API trả ngày sinh), `useEffect` đồng bộ lại state nội bộ để 3 ô select hiển thị đúng.
 
-`DateSelect` có state bên trong là `date`, nhưng giá trị thật của form lại đến từ prop `value`.
-
-Nếu bên ngoài đổi `value` mà component không cập nhật state nội bộ, UI có thể hiển thị sai.
-
-Ví dụ:
-
-```text
-API trả ngày sinh của user = 2001-10-15
-   ↓
-Profile dùng setValue(...) cập nhật form
-   ↓
-DateSelect nhận prop mới
-   ↓
-useEffect đồng bộ lại 3 ô select
 ```
-
-Nhờ đó component hiển thị đúng dữ liệu từ form.
+API trả ngày sinh = "2001-10-15"
+   ↓
+Profile dùng setValue('date_of_birth', new Date('2001-10-15'))
+   ↓
+DateSelect nhận prop value mới
+   ↓
+useEffect chạy → setDate({ date: 15, month: 9, year: 2001 })
+   ↓
+3 ô select hiển thị: Ngày 15 / Tháng 10 / Năm 2001 ✅
+```
 
 ---
 
@@ -134,336 +167,192 @@ Nhờ đó component hiển thị đúng dữ liệu từ form.
 
 ### Trước commit này
 
-Khi user bấm nút `Lưu`, code chỉ:
+Khi user bấm `Lưu`, code chỉ `console.log(data)` — form lấy được dữ liệu nhưng chưa gửi lên server.
 
-```ts
-console.log(data)
-```
+### Sau commit — Thêm mutation và xử lý submit hoàn chỉnh
 
-Tức là form mới chỉ lấy được dữ liệu, nhưng chưa gửi lên server.
-
-### Sau commit này
-
-Thêm mutation:
-
-```ts
+```typescript
 const updateProfileMutation = useMutation({
   mutationFn: userApi.updateProfile
 })
 ```
 
-Và khi submit:
-
-```ts
+```typescript
 const onSubmit = handleSubmit(async (data) => {
   const res = await updateProfileMutation.mutateAsync({
     ...data,
-    date_of_birth: data.date_of_birth?.toISOString()
+    date_of_birth: data.date_of_birth?.toISOString()   // Date → chuỗi ISO
   })
-  setProfile(res.data.data)
-  setProfileToLS(res.data.data)
-  refetch()
-  toast.success(res.data.message)
+  setProfile(res.data.data)          // Cập nhật Context
+  setProfileToLS(res.data.data)      // Cập nhật localStorage
+  refetch()                          // Gọi lại API getProfile
+  toast.success(res.data.message)    // Thông báo thành công
 })
 ```
 
 ### Giải thích từng bước
 
-#### Bước 1. Submit form
+#### Bước 1: `handleSubmit(async (data) => {...})`
 
-`handleSubmit(...)` lấy dữ liệu hợp lệ từ form.
+`handleSubmit` của react-hook-form chỉ gọi callback khi form **pass validation**. Biến `data` chứa dữ liệu đã validate thành công.
 
-#### Bước 2. Gọi API update
+#### Bước 2: `mutateAsync` thay vì `mutate`
 
-```ts
-await updateProfileMutation.mutateAsync(...)
+```typescript
+const res = await updateProfileMutation.mutateAsync({...})
 ```
 
-Ở đây dùng `mutateAsync` để chờ kết quả trả về từ server.
+Dùng `mutateAsync` + `await` để **chờ kết quả** từ server trước khi chạy các bước tiếp theo. Nếu dùng `mutate` thì không chờ được.
 
-#### Bước 3. Đổi `date_of_birth` sang chuỗi ISO
+#### Bước 3: `date_of_birth?.toISOString()`
 
-```ts
-date_of_birth: data.date_of_birth?.toISOString()
+Trong form, `date_of_birth` là kiểu `Date` (object JavaScript). Nhưng API cần chuỗi:
+
+```
+new Date(2001, 9, 15).toISOString()
+→ "2001-10-15T00:00:00.000Z"
 ```
 
-Trong form, `date_of_birth` đang là kiểu `Date`.
+#### Bước 4: Cập nhật Context + localStorage
 
-Nhưng backend thường cần chuỗi ngày kiểu:
-
-```text
-2026-04-01T00:00:00.000Z
+```typescript
+setProfile(res.data.data)       // AppContext cập nhật → NavHeader, SideNav re-render
+setProfileToLS(res.data.data)   // localStorage lưu → reload trang vẫn giữ data mới
 ```
 
-Nên phải đổi bằng `.toISOString()` trước khi gửi.
+Hai bước này đảm bảo profile mới nhất được phản ánh ở **mọi nơi** ngay lập tức.
 
-#### Bước 4. Cập nhật lại `AppContext`
+#### Bước 5: `refetch()`
 
-```ts
-setProfile(res.data.data)
-```
-
-Điều này giúp những nơi đang dùng `profile` trong app cập nhật ngay sau khi save.
-
-#### Bước 5. Lưu lại Local Storage
-
-```ts
-setProfileToLS(res.data.data)
-```
-
-Giúp khi reload trang, app vẫn có thông tin profile mới.
-
-#### Bước 6. Gọi lại `refetch()`
-
-```ts
-refetch()
-```
-
-Gọi lại API `getProfile` để chắc dữ liệu mới nhất từ server đã đồng bộ về.
-
-#### Bước 7. Hiện thông báo thành công
-
-```ts
-toast.success(res.data.message)
-```
-
-User sẽ thấy thông báo sau khi cập nhật thành công.
+Gọi lại API `getProfile` để chắc chắn dữ liệu từ server đã đồng bộ 100%.
 
 ---
 
-## 📁 3. `FormInput` Và `FormData` — Tách Kiểu Dữ Liệu Input Và Output
+### `FormInput` vs `FormData` — Tách Kiểu Dữ Liệu Input/Output
 
-Commit này thêm:
-
-```ts
+```typescript
 type FormInput = {
   name: string | undefined
   phone: string | undefined
   address: string | undefined
   avatar: string | undefined
-  date_of_birth: Date | undefined
+  date_of_birth: Date | undefined       // ← Date object trong form
 }
-```
 
-Và dùng:
+type FormData = Pick<UserSchema, 'name' | 'address' | 'phone' | 'date_of_birth' | 'avatar'>
 
-```ts
 useForm<FormInput, unknown, FormData>({...})
+//       ↑ Input type    ↑ Output type (sau validate)
 ```
 
-### Ý nghĩa đơn giản
-
-Trong form:
-
-- `date_of_birth` đang làm việc với `Date`
-
-Nhưng dữ liệu cuối cùng sau khi validate lại muốn theo kiểu của schema/profile.
-
-Tác giả tách ra:
-
-- `FormInput`: kiểu dữ liệu đang nhập trong form
-- `FormData`: kiểu dữ liệu đầu ra sau validate
-
-Đây là cách viết giúp TypeScript hiểu rõ hơn dữ liệu ở từng bước.
+**Tại sao tách?** `date_of_birth` trong form là `Date`, nhưng sau khi validate (qua yup schema), nó có thể thành kiểu khác. TypeScript generic `<FormInput, unknown, FormData>` cho react-hook-form hiểu:
+- Khi gõ → dữ liệu theo `FormInput`
+- Khi submit thành công → dữ liệu theo `FormData`
 
 ---
 
-## 📁 4. `user.api.ts` Và `rules.ts` — Đồng Bộ Tên Field Với Backend
+## 📁 3. `user.api.ts` và `rules.ts` — Đồng Bộ Tên Field Với Backend
 
-### Trong `user.api.ts`
+### Thay đổi:
 
-```ts
+```diff
+// user.api.ts
 - newPassword?: string
 + new_password?: string
-```
 
-### Trong `rules.ts`
-
-```ts
+// rules.ts
 - confirmPassword
-- newPassword
 + confirm_password
+- newPassword
 + new_password
 ```
 
-### Tại sao phải sửa?
+### Tại sao?
 
-Backend API đang dùng kiểu tên:
+Backend API dùng **snake_case** (`new_password`, `confirm_password`). Nếu frontend dùng **camelCase** (`newPassword`), khi gửi request lên server sẽ bị **lệch tên field** → server không nhận ra → dữ liệu bị mất.
 
-```text
-new_password
-confirm_password
-```
-
-Nếu frontend dùng:
-
-```text
-newPassword
-confirmPassword
-```
-
-thì khi gửi request rất dễ bị lệch tên field với backend.
-
-Commit này sửa lại để thống nhất với API document.
+> 💡 **Bài học:** Frontend nên match tên field với API. Nếu backend dùng snake_case → frontend cũng dùng snake_case cho data layer.
 
 ---
 
-## 📁 5. `NavHeader.tsx` — Hiển Thị Avatar Thật Của User
+## 📁 4. `NavHeader.tsx` + `UserSideNav.tsx` — Hiển Thị Avatar Thật
 
-Trước đây avatar ở header đang dùng một ảnh URL cố định:
-
+### Trước: Avatar cứng (hardcoded URL)
 ```tsx
-src='https://cf.shopee.vn/file/...'
+src='https://cf.shopee.vn/file/d04ea22afab6e6d250a370d7ccc2e675_tn'
 ```
 
-Sau commit:
-
+### Sau: Avatar dynamic + fallback
 ```tsx
-<img src={profile?.avatar || userImage} alt='avatar' className='h-full w-full rounded-full object-cover' />
+import userImage from '~/assets/images/user.svg'
+
+<img src={profile?.avatar || userImage} alt='avatar' />
 ```
 
-### Ý nghĩa
+| `profile?.avatar` | Kết quả |
+|-------------------|---------|
+| Có avatar thật (URL) | → Hiển thị avatar của user |
+| `undefined` / `null` / `""` | → Hiển thị `user.svg` (ảnh mặc định) |
 
-- Nếu user có avatar thật → hiển thị avatar đó
-- Nếu chưa có avatar → dùng ảnh mặc định `user.svg`
-
-Điều này giúp giao diện “đúng với user hiện tại” hơn, không còn dùng ảnh cứng.
+**`user.svg`** là file SVG mới được thêm vào `src/assets/images/` — ảnh silhouette người dùng mặc định, tránh bị vỡ ảnh hoặc trống.
 
 ---
 
-## 📁 6. `UserSideNav.tsx` — Hiển Thị Email Và Avatar Thật
+## 📁 5. `AsideFilter.tsx` — Sửa Lỗi Tạo Search Params
 
-Commit này thêm:
+### Vấn đề: `undefined` lọt vào URL
 
-```tsx
-const { profile } = useContext(AppContext)
+Khi `price_min` hoặc `price_max` là `undefined`, nếu nhét thẳng vào `createSearchParams` sẽ tạo URL lỗi:
+
+```
+/?price_min=undefined&price_max=500000   ← BUG
 ```
 
-và thay nội dung cũ bằng dữ liệu thật:
+### Giải pháp: Lọc bỏ `undefined` trước khi tạo URL
 
-```tsx
-<img src={profile?.avatar || userImage} ... />
-<div>{profile?.email}</div>
-```
-
-### Trước đây
-
-- Avatar là ảnh cứng
-- Tên hiển thị là text cứng `cdthanh`
-
-### Sau commit này
-
-- Avatar lấy từ profile thật
-- Text hiển thị là email thật của user
-
-Nhờ vậy sidebar đồng bộ hơn với dữ liệu đăng nhập hiện tại.
-
----
-
-## 📁 7. `user.svg` — Ảnh Mặc Định Khi Chưa Có Avatar
-
-Commit này thêm file:
-
-```text
-src/assets/images/user.svg
-```
-
-File này đóng vai trò là ảnh dự phòng.
-
-### Khi nào dùng?
-
-```text
-profile?.avatar có dữ liệu     → dùng avatar thật
-profile?.avatar không có       → dùng user.svg
-```
-
-Đây là cách xử lý rất phổ biến để tránh ảnh bị vỡ hoặc bị trống.
-
----
-
-## 📁 8. `AsideFilter.tsx` — Sửa Lỗi Typing Và Tạo Search Params An Toàn Hơn
-
-Commit này sửa:
-
-```ts
+```typescript
 type FormData = {
-  price_min: string | undefined
+  price_min: string | undefined      // ← Có thể undefined
   price_max: string | undefined
 }
-type FormOutput = Pick<Schema, 'price_max' | 'price_min'>
-```
 
-và:
-
-```ts
 const searchParams = Object.fromEntries(
   Object.entries({
     ...queryConfig,
     price_max: data.price_max,
     price_min: data.price_min
-  }).filter(([, value]) => !isUndefined(value))
+  }).filter(([, value]) => !isUndefined(value))     // ← Lọc bỏ undefined
 ) as Record<string, string>
 ```
 
-### Ý nghĩa
+**Giải thích pipeline:**
 
-Khi tạo query string, nếu có field `undefined` mà vẫn đưa vào `createSearchParams`, rất dễ phát sinh dữ liệu không mong muốn.
-
-Commit này lọc bỏ các giá trị `undefined` trước rồi mới tạo URL.
-
-### Kết quả
-
-URL lọc giá sẽ sạch hơn, ví dụ:
-
-```text
-/?price_min=100000&price_max=500000
 ```
+{ ...queryConfig, price_min: '100000', price_max: undefined }
+   ↓ Object.entries()
+[['page', '1'], ['price_min', '100000'], ['price_max', undefined]]
+   ↓ .filter(([, value]) => !isUndefined(value))
+[['page', '1'], ['price_min', '100000']]             ← Bỏ price_max
+   ↓ Object.fromEntries()
+{ page: '1', price_min: '100000' }                   ← Object sạch
 
-thay vì có thể dính thêm các field rỗng / undefined.
-
----
-
-## 📁 9. `index.html` Và `api-document.md`
-
-### `index.html`
-
-Đổi title:
-
-```html
-- <title>shopee-reactjs</title>
-+ <title>Shopee Clone - ReactJS</title>
+→ URL kết quả: /?page=1&price_min=100000             ← Không có field rỗng ✅
 ```
-
-Giúp tên tab trình duyệt rõ ràng hơn.
-
-### `api-document.md`
-
-Commit này thêm file tài liệu API khá dài, mô tả:
-
-- endpoint
-- method
-- body
-- rules
-- format response
-
-File này hữu ích cho việc đối chiếu frontend với backend khi code form, auth, cart, upload avatar...
 
 ---
 
 ## 🔗 Luồng Hoạt Động Sau Commit
 
-```text
-1. User mở trang /user/profile
-2. Form hiển thị đúng ngày sinh nhờ DateSelect đã được fix
-3. User sửa thông tin và bấm Lưu
-4. Frontend gọi API update profile
-5. Server trả dữ liệu profile mới
-6. AppContext và localStorage được cập nhật lại
-7. Header và UserSideNav hiển thị avatar/email mới nhất
-8. User thấy toast thông báo thành công
 ```
-
-Commit này giúp phần Profile đi từ mức “hiển thị được data” sang mức “chỉnh sửa và lưu data thật”.
+1. User mở trang /user/profile
+2. API getProfile trả data → useEffect fill form (name, phone, date_of_birth...)
+3. DateSelect hiển thị đúng ngày sinh nhờ đã fix name/value/useEffect
+4. User sửa thông tin và bấm [Lưu]
+5. handleSubmit validate → mutateAsync gọi API updateProfile
+6. Server trả profile mới → cập nhật Context + localStorage + refetch
+7. NavHeader và UserSideNav hiển thị avatar/email mới ngay lập tức
+8. Toast "Cập nhật thành công!" 🎉
+```
 
 ---
 
@@ -471,9 +360,10 @@ Commit này giúp phần Profile đi từ mức “hiển thị được data”
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **`useMutation`** | Hook của React Query dùng cho các hành động làm thay đổi dữ liệu như create / update / delete |
-| **`mutateAsync`** | Phiên bản trả về Promise, có thể dùng `await` |
-| **`toISOString()`** | Đổi đối tượng `Date` sang chuỗi ngày giờ chuẩn ISO để gửi lên backend |
-| **Fallback image** | Ảnh dự phòng dùng khi dữ liệu ảnh thật không có |
-| **Đồng bộ Context + Local Storage** | Sau khi update thành công, cập nhật cả state trong app lẫn dữ liệu lưu local |
-| **Lọc `undefined` trước khi tạo query string** | Giúp URL sạch hơn và tránh bug do tham số rỗng |
+| **`??` vs `\|\|`** | `??` chỉ fallback khi `null`/`undefined`. `\|\|` fallback cả `0`, `""`, `false`. Dùng `??` khi `0` là giá trị hợp lệ |
+| **Computed Property Name `[name]`** | Dùng biến làm key trong object: `{ [name]: value }` → key là giá trị của biến `name` |
+| **`mutateAsync` + `await`** | Phiên bản trả Promise của `mutate`, dùng khi cần chờ kết quả trước khi tiếp tục |
+| **`toISOString()`** | Đổi `Date` object → chuỗi ngày chuẩn quốc tế để gửi API |
+| **Fallback image pattern** | `profile?.avatar \|\| defaultImage` — ảnh dự phòng khi data trống |
+| **Lọc `undefined` trước `createSearchParams`** | Tránh URL dính `undefined` — dùng `Object.entries().filter()` |
+| **Đồng bộ Context + localStorage** | Sau khi update → cập nhật cả React state lẫn persistent storage |
