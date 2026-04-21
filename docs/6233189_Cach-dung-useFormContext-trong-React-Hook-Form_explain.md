@@ -1,19 +1,18 @@
 # 6233189 — feat: Cách dùng useFormContext trong React Hook Form
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
-Commit này chỉ sửa **1 file duy nhất** — `Profile.tsx` — nhưng giới thiệu một kỹ thuật quan trọng:
+Commit này chỉ sửa **1 file duy nhất** — `Profile.tsx` — nhưng giới thiệu kỹ thuật quan trọng:
 
-**Dùng `FormProvider` + `useFormContext` để chia sẻ form state giữa component cha và component con** — thay vì truyền `register`, `control`, `errors` qua props.
+**Dùng `FormProvider` + `useFormContext` để chia sẻ form state giữa component cha và component con** — thay vì truyền `register`, `control`, `errors` qua props từng cấp.
 
 Có 2 thay đổi chính:
-
-1. **Tách component `Info`** — chứa phần Tên + Số điện thoại ra khỏi form chính.
-2. **Dùng `FormProvider` / `useFormContext`** — component `Info` tự lấy form methods mà không cần nhận props.
+1. Tách component `Info` (phần Tên + Số điện thoại) ra khỏi form chính.
+2. Dùng `FormProvider` / `useFormContext` để `Info` tự lấy form methods mà không cần nhận props.
 
 ---
 
-## 📁 File Thay Đổi
+## Tổng Quan File Thay Đổi
 
 | File | Thay đổi |
 |------|----------|
@@ -31,11 +30,8 @@ export default function Profile() {
 
   return (
     <form>
-      {/* Tên */}
       <Input register={register} name='name' errorMessage={errors.name?.message} />
-      {/* Số điện thoại */}
       <Controller control={control} name='phone' render={...} />
-      {/* Địa chỉ */}
       <Input register={register} name='address' errorMessage={errors.address?.message} />
       {/* ... */}
     </form>
@@ -43,35 +39,40 @@ export default function Profile() {
 }
 ```
 
-**Vấn đề:** Khi form ngày càng phức tạp (nhiều field, nhiều section), component `Profile` trở nên rất dài. Muốn tách thành component con thì phải **truyền props** xuống:
+Khi form ngày càng phức tạp và muốn chia nhỏ thành component con để code dễ đọc hơn, ta buộc phải **truyền props xuống**:
 
 ```tsx
-// ❌ Prop drilling — phải truyền register, control, errors xuống từng component con
+// Prop drilling — phải truyền register, control, errors cho từng component con
 <InfoSection register={register} control={control} errors={errors} />
 <AddressSection register={register} errors={errors} />
 <AvatarSection register={register} errors={errors} setValue={setValue} />
 ```
 
-Càng nhiều component con, càng nhiều props phải truyền → code dài, khó bảo trì.
+Vấn đề với Prop Drilling:
+- Càng nhiều component con, càng nhiều props phải truyền
+- Khi muốn dùng thêm một method (ví dụ `watch`), phải sửa tất cả các component trung gian
+- Code dài, khó bảo trì, component con phụ thuộc chặt vào component cha
 
 ---
 
 ## Giải Pháp: `FormProvider` + `useFormContext`
 
-### Ý tưởng:
+### Ý tưởng
 
 ```
-TRƯỚC (Prop Drilling):                     SAU (Context):
-Profile                                     Profile
-  ├── register ──→ Info (props)               ├── <FormProvider methods={...}>
-  ├── control  ──→ Info (props)               │     └── <Info />
-  └── errors   ──→ Info (props)               │           └── useFormContext()  ← Tự lấy!
-                                               └── </FormProvider>
+TRƯỚC (Prop Drilling):                         SAU (Context):
+Profile                                         Profile
+  ├── register ──→ Info (qua props)               ├── <FormProvider methods={...}>
+  ├── control  ──→ Info (qua props)               │     └── <Info />
+  └── errors   ──→ Info (qua props)               │           └── useFormContext()  ← Tự lấy!
+                                                   └── </FormProvider>
 ```
+
+`FormProvider` hoạt động như một React Context: bọc ngoài form và cung cấp tất cả form methods cho mọi component bên trong — không cần truyền qua props.
 
 ---
 
-## 📁 Thay Đổi Chi Tiết
+## Thay Đổi Chi Tiết
 
 ### Bước 1: Import thêm `FormProvider` và `useFormContext`
 
@@ -80,7 +81,7 @@ Profile                                     Profile
 + import { Controller, FormProvider, useForm, useFormContext } from 'react-hook-form'
 ```
 
-### Bước 2: Lưu `useForm()` vào biến `methods`
+### Bước 2: Lưu `useForm()` vào biến `methods` trước khi destructure
 
 ```diff
   // TRƯỚC — destructure ngay
@@ -94,7 +95,7 @@ Profile                                     Profile
 -   setError
 - } = useForm<FormInput, unknown, FormData>({...})
 
-  // SAU — lưu vào methods trước, destructure sau
+  // SAU — lưu toàn bộ vào methods, rồi mới destructure
 + const methods = useForm<FormInput, unknown, FormData>({...})
 +
 + const {
@@ -108,13 +109,17 @@ Profile                                     Profile
 + } = methods
 ```
 
-**Tại sao lưu vào `methods`?** Vì `FormProvider` cần nhận **toàn bộ** object methods:
+**Tại sao cần lưu vào `methods` trước?**
+
+`FormProvider` cần nhận **toàn bộ object** được trả về bởi `useForm()`:
 
 ```tsx
 <FormProvider {...methods}>
-  {/* Spread tất cả methods vào context */}
+  {/* Spread tất cả methods vào context để component con có thể truy cập */}
 </FormProvider>
 ```
+
+Nếu destructure ngay, ta chỉ có các biến riêng lẻ (`register`, `control`...) và không có object gốc để truyền cho `FormProvider`.
 
 ### Bước 3: Bọc form bằng `<FormProvider>`
 
@@ -130,6 +135,10 @@ Profile                                     Profile
 + </FormProvider>
 ```
 
+`FormProvider` và `<form>` là hai thứ khác nhau:
+- `<FormProvider>` cung cấp form state qua React Context
+- `<form>` là HTML element thật, xử lý submit event
+
 ### Bước 4: Tách component `Info` — dùng `useFormContext`
 
 ```tsx
@@ -138,7 +147,7 @@ function Info() {
     register,
     control,
     formState: { errors }
-  } = useFormContext<FormData>()        // ← Tự lấy từ context, KHÔNG cần props!
+  } = useFormContext<FormData>()   // Tự lấy từ context, KHÔNG cần props!
 
   return (
     <>
@@ -147,7 +156,7 @@ function Info() {
         <div className='truncate pt-3 capitalize sm:w-[20%] sm:text-right'>Tên</div>
         <div className='sm:w-[80%] sm:pl-5'>
           <Input
-            classNameInput='w-full rounded-sm border border-gray-300 px-3 py-2 outline-none focus:border-gray-500 focus:shadow-sm'
+            classNameInput='w-full rounded-sm border border-gray-300 px-3 py-2 ...'
             register={register}
             name='name'
             placeholder='Tên'
@@ -185,7 +194,7 @@ function Info() {
 ```tsx
 <form onSubmit={onSubmit}>
   <div>Email: {profile?.email}</div>
-  <Info />                                  {/* ← Không props! Tự lấy từ context */}
+  <Info />                       {/* Không cần truyền props gì cả! */}
   <Input name='address' ... />
   <DateSelect ... />
   <Button>Lưu</Button>
@@ -194,123 +203,131 @@ function Info() {
 
 ---
 
-## 🔗 Cách Hoạt Động Bên Trong
+## Cách Hoạt Động Bên Trong
 
 ```
 Profile (component cha)
    │
    │ 1. const methods = useForm(...)
-   │ 2. <FormProvider {...methods}>        ← Đưa methods vào React Context
+   │ 2. <FormProvider {...methods}>   ← Đưa methods vào React Context
    │
    └── <form>
          │
-         ├── <Info />                       ← Component con
+         ├── <Info />                 ← Component con
          │     │
-         │     │ 3. useFormContext()         ← Lấy methods từ Context
+         │     │ 3. useFormContext()  ← Lấy methods từ Context
          │     │    → { register, control, errors }
          │     │
          │     ├── <Input register={register} name='name' />
          │     └── <Controller control={control} name='phone' />
          │
-         ├── <Input name='address' />       ← Vẫn dùng register từ destructure
+         ├── <Input name='address' /> ← Vẫn dùng register từ destructure
          └── <DateSelect />
 ```
 
-### Tại sao `Info` có thể gọi `useFormContext()` thành công?
+### Điều kiện để `useFormContext()` hoạt động
 
-Vì `Info` nằm **bên trong** cây component được bọc bởi `<FormProvider>`:
+`Info` phải nằm **bên trong** cây component được bọc bởi `<FormProvider>`:
 
 ```tsx
-<FormProvider {...methods}>       ← Cung cấp context
+<FormProvider {...methods}>      ← Cung cấp context
   <form>
-    <Info />                      ← useFormContext() lấy được ✅
+    <Info />                     ← useFormContext() lấy được ✅
   </form>
 </FormProvider>
-```
 
-Nếu `Info` nằm **bên ngoài** `<FormProvider>` → `useFormContext()` sẽ trả `undefined` → crash.
+{/* --------------- */}
+
+<Info />                         ← Ngoài FormProvider → useFormContext() trả undefined → crash ❌
+<FormProvider {...methods}>
+  ...
+</FormProvider>
+```
 
 ---
 
 ## So Sánh 3 Cách Chia Sẻ Form State
 
-| Cách | Code | Khi nào dùng |
-|------|------|-------------|
-| **1. Tất cả trong 1 component** | Không tách | Form nhỏ, ít field |
-| **2. Props drilling** | `<Info register={register} errors={errors} />` | Tách 1-2 component, ít props |
-| **3. FormProvider + useFormContext** | `<FormProvider>` + `useFormContext()` | Tách nhiều component, hoặc component lồng sâu |
+| Cách | Cú pháp | Khi nào dùng |
+|------|---------|--------------|
+| **1. Tất cả trong 1 component** | Không tách | Form nhỏ, ít field, dễ đọc khi gộp lại |
+| **2. Props drilling** | `<Info register={register} errors={errors} />` | Tách 1-2 component, số lượng props ít |
+| **3. FormProvider + useFormContext** | `<FormProvider>` + `useFormContext()` | Form phức tạp, nhiều component con, hoặc lồng sâu nhiều tầng |
 
-### Khi nào NÊN dùng `useFormContext`?
+### Khi nào nên dùng `useFormContext`?
 
-```
-✅ Dùng khi:
-  - Form phức tạp, tách thành nhiều component/section
-  - Component con cần register, control, errors mà truyền props quá dài
-  - Component con lồng sâu nhiều tầng (prop drilling rất tệ)
+**Nên dùng khi:**
+- Form phức tạp, tách thành nhiều section / component
+- Component con cần `register`, `control`, `errors` nhưng truyền props quá dài
+- Component con lồng sâu nhiều tầng (prop drilling qua 3+ cấp rất tệ)
+- Muốn component con hoàn toàn độc lập, không phụ thuộc vào interface của cha
 
-❌ Không cần khi:
-  - Form đơn giản, nằm gọn trong 1 component
-  - Chỉ tách 1-2 component nhỏ, truyền 1-2 props là đủ
-```
+**Không cần khi:**
+- Form đơn giản, nằm gọn trong 1 component
+- Chỉ tách 1 component con nhỏ, truyền 1-2 props là đủ
 
 ---
 
-## 📌 Lưu Ý Quan Trọng Trong Commit Này
+## Lưu Ý Quan Trọng
 
-### Component `Info` được đặt ở đâu?
+### Component `Info` đặt ở đâu?
 
 ```typescript
-// Nằm CÙNG FILE với Profile — không tách file riêng
-function Info() { ... }           // ← Không export, chỉ dùng nội bộ
+// Nằm CÙNG FILE với Profile — không export, chỉ dùng nội bộ
+function Info() { ... }           // Không export
 
 export default function Profile() { ... }
 ```
 
-**Tại sao?** Đây chỉ là ví dụ minh họa cách dùng `useFormContext`. Trong thực tế, `Info` có thể tách ra file riêng (`Info.tsx`) nếu đủ phức tạp. Vì đã dùng `useFormContext`, nó vẫn lấy được form state mà không cần truyền props.
+Đây là pattern "internal component" — component con chỉ có ý nghĩa trong context của `Profile`, không nên tái sử dụng ở nơi khác. Vì vậy đặt cùng file thay vì tách ra file riêng giúp giữ mọi thứ gần nhau và dễ hiểu.
 
-### `FormData` type cho `useFormContext`
+Trong thực tế nếu `Info` đủ phức tạp hoặc cần tái sử dụng → tách ra `Info.tsx` riêng. Vì đã dùng `useFormContext`, nó vẫn lấy được form state mà không cần props.
+
+### Generic type cho `useFormContext`
 
 ```typescript
 useFormContext<FormData>()
-//             ↑ Phải truyền generic type để TypeScript biết form có những field nào
+//             ↑ Truyền type để TypeScript biết form có những field nào
+// → autocomplete khi truy cập errors.name, register('name')...
+// → TypeScript báo lỗi nếu dùng sai tên field
 ```
 
 ---
 
-## 🔗 Sơ Đồ So Sánh Trước/Sau
+## Sơ Đồ So Sánh Trước/Sau
 
 ```
 TRƯỚC (92c7586):                             SAU (6233189):
 ┌─ Profile.tsx ───────────────────┐          ┌─ Profile.tsx ───────────────────┐
 │                                 │          │                                 │
 │ useForm() → destructure ngay    │          │ const methods = useForm()       │
-│                                 │          │ destructure từ methods          │
+│                                 │          │ const { register, ... } = methods│
 │ <form>                          │          │                                 │
 │   Email: ...                    │          │ function Info() {               │
-│   Tên: <Input register=... />   │    →     │   useFormContext() ← tự lấy!   │
-│   SĐT: <Controller control=../>│          │   return <Input /><Controller />│
-│   Địa chỉ: <Input ... />       │          │ }                               │
+│   Tên: <Input register=... />   │    →     │   useFormContext() ← Tự lấy!   │
+│   SĐT: <Controller control=../> │          │   return <Input /><Controller/> │
+│   Địa chỉ: <Input ... />        │          │ }                               │
 │   Ngày sinh: <DateSelect />     │          │                                 │
-│   [Lưu]                        │          │ <FormProvider {...methods}>      │
+│   [Lưu]                         │          │ <FormProvider {...methods}>      │
 │ </form>                         │          │   <form>                        │
 │                                 │          │     Email: ...                  │
 │                                 │          │     <Info />  ← không props!   │
 │                                 │          │     Địa chỉ: <Input ... />     │
-│                                 │          │     [Lưu]                      │
-│                                 │          │   </form>                      │
+│                                 │          │     [Lưu]                       │
+│                                 │          │   </form>                       │
 │                                 │          │ </FormProvider>                 │
 └─────────────────────────────────┘          └─────────────────────────────────┘
 ```
 
 ---
 
-## 📌 Kiến Thức Mới
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **`FormProvider`** | Component của react-hook-form — bọc ngoài form, đưa tất cả form methods vào React Context |
-| **`useFormContext()`** | Hook lấy form methods từ Context — component con dùng thay vì nhận qua props |
-| **Prop Drilling** | Anti-pattern: truyền props qua nhiều tầng component → code dài, khó bảo trì |
-| **`methods` object** | Lưu kết quả `useForm()` vào biến → cần cho cả `FormProvider` lẫn destructure nội bộ |
-| **Internal component** | Component con nằm cùng file, không export — chỉ dùng nội bộ trong file đó |
-| **Generic type `useFormContext<T>()`** | Truyền type cho hook để TypeScript biết form schema → autocomplete + type safety |
+| **`FormProvider`** | Component của react-hook-form — bọc ngoài form, đưa tất cả form methods vào React Context. Nhận `{...methods}` từ `useForm()`. |
+| **`useFormContext()`** | Hook lấy form methods từ Context — component con dùng thay vì nhận qua props. Phải gọi bên trong cây component được bọc bởi `<FormProvider>`. |
+| **Prop Drilling** | Anti-pattern: truyền props qua nhiều tầng component trung gian. Khi thêm prop mới phải sửa tất cả tầng trung gian — khó bảo trì. |
+| **`methods` object** | Lưu toàn bộ kết quả `useForm()` vào một biến trước khi destructure. Cần thiết để có object gốc truyền cho `FormProvider`. |
+| **Internal component** | Component con khai báo trong cùng file với component cha, không export. Dùng khi component con chỉ có ý nghĩa trong context đó. |
+| **Generic type `useFormContext<T>()`** | Truyền type để TypeScript biết form schema → autocomplete tên field và type safety. |

@@ -1,18 +1,16 @@
 # c28219c — feat: Validate khi upload ảnh
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
 Commit này tiếp tục cải thiện chức năng upload ảnh, tập trung vào **3 vấn đề**:
 
-1. Đưa giới hạn dung lượng (`1 MB`) vào file `config.ts` thay vì hard-code.
+1. Đưa giới hạn dung lượng (`1 MB`) vào file `config.ts` thay vì viết số thẳng vào code (magic number).
 2. Đơn giản hóa logic validate — gom 2 rule riêng lẻ thành 1 câu điều kiện ngắn gọn.
-3. Fix bug: user chọn lại **đúng file cũ** thì `onChange` không trigger → xử lý bằng reset value.
-
-> 💡 Nếu commit `30c8fa5` làm cho "upload ảnh hoạt động", thì commit này làm cho "chọn ảnh và validate mượt hơn".
+3. Fix bug: user chọn lại **đúng file cũ** thì `onChange` không trigger — xử lý bằng kỹ thuật reset value.
 
 ---
 
-## 📁 Tổng Quan Các File Thay Đổi
+## Các File Thay Đổi
 
 | File | Loại thay đổi | Vai trò |
 |------|---------------|---------|
@@ -21,7 +19,7 @@ Commit này tiếp tục cải thiện chức năng upload ảnh, tập trung v�
 
 ---
 
-## 📁 1. `config.ts` — Gom Magic Number Vào Cấu Hình
+## 1. `config.ts` — Gom Magic Number Vào Cấu Hình
 
 ### Trước:
 
@@ -36,38 +34,37 @@ const config = {
 ```typescript
 const config = {
   baseUrl: 'https://api-ecom.duthanhduoc.com/',
-  maxSizeUploadAvatar: 1048576                      // ← MỚI
+  maxSizeUploadAvatar: 1048576    // 1 MB = 1024 KB = 1024 × 1024 bytes
 }
 ```
 
-### `1048576` là gì?
+### "Magic Number" là gì và tại sao nên tránh?
 
-```
-1 MB = 1024 KB = 1024 × 1024 bytes = 1.048.576 bytes
-```
+**Magic Number** là những con số xuất hiện trong code mà không có giải thích ý nghĩa:
 
-### Tại sao nên đưa vào config?
-
-**Trước — Magic Number (số ám, khó hiểu):**
 ```typescript
-if (fileFromLocal.size > 1024 * 1024)   // Đọc code phải tự tính: "À, 1 MB"
+// Magic Number — đọc phải tự tính: "Ừ, 1024 × 1024, à ra 1 MB"
+if (fileFromLocal.size > 1024 * 1024) { ... }
 ```
 
-**Sau — Named Constant (tên rõ ràng):**
+Vấn đề:
+- Người đọc lần đầu không biết ngay con số đó có nghĩa gì
+- Nếu cần đổi limit từ 1MB sang 2MB, phải tìm tất cả chỗ dùng `1024 * 1024`
+- Nếu nhiều component cùng validate → mỗi nơi một con số khác nhau
+
 ```typescript
-if (fileFromLocal.size >= config.maxSizeUploadAvatar)   // Đọc ngay: "max size upload avatar"
+// Named Constant — đọc ngay: "à, max size upload avatar là..."
+if (fileFromLocal.size >= config.maxSizeUploadAvatar) { ... }
 ```
 
-**Lợi ích:**
-1. **Dễ đọc** — biết ngay ý nghĩa con số
-2. **Dễ sửa** — đổi từ 1MB sang 2MB? Sửa 1 chỗ duy nhất
-3. **Tránh lặp** — nếu nhiều component cùng validate → đều import từ config
-
-> 💡 **Anti-pattern "Magic Number":** Bất kỳ số nào xuất hiện trong code mà không rõ ý nghĩa (1024, 86400, 3600...) đều nên được đặt tên qua constant hoặc config.
+Lợi ích:
+- Dễ đọc và tự giải thích
+- Đổi từ 1MB sang 2MB? Sửa `config.ts` ở một chỗ duy nhất
+- Tất cả component dùng chung thì đều được cập nhật
 
 ---
 
-## 📁 2. `Profile.tsx` — Validate Ảnh Đơn Giản Hóa
+## 2. `Profile.tsx` — Validate Ảnh Đơn Giản Hóa
 
 ### Trước (dài, nhiều `if` riêng lẻ):
 
@@ -102,10 +99,13 @@ const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 ```typescript
 const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
   const fileFromLocal = event.target.files?.[0]
-  fileInputRef.current?.setAttribute('value', '')                          // ← MỚI: Reset input
+  fileInputRef.current?.setAttribute('value', '')   // Reset input sau khi đọc file
 
-  if (fileFromLocal && (fileFromLocal.size >= config.maxSizeUploadAvatar || !fileFromLocal.type.includes('image'))) {
-    toast.error(`Dụng lượng file tối đa 1 MB. Định dạng:.JPEG, .PNG`, {
+  if (
+    fileFromLocal &&
+    (fileFromLocal.size >= config.maxSizeUploadAvatar || !fileFromLocal.type.includes('image'))
+  ) {
+    toast.error(`Dung lượng file tối đa 1 MB. Định dạng:.JPEG, .PNG`, {
       position: 'top-center'
     })
   } else {
@@ -117,190 +117,189 @@ const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 ### Phân tích điều kiện:
 
 ```typescript
-fileFromLocal &&                                      // Có chọn file
+fileFromLocal &&                                         // Có chọn file
 (
   fileFromLocal.size >= config.maxSizeUploadAvatar    // QUÁ LỚN (≥ 1MB)
-  ||                                                  // HOẶC
-  !fileFromLocal.type.includes('image')               // KHÔNG PHẢI ẢNH
+  ||                                                   // HOẶC
+  !fileFromLocal.type.includes('image')                // KHÔNG PHẢI ẢNH
 )
 ```
 
-| File chọn | `size >= 1MB` | `type.includes('image')` | Kết quả |
+| File chọn | Size ≥ 1MB | Type là ảnh | Kết quả |
 |-----------|:---:|:---:|---------|
-| `photo.jpg` (500KB) | ❌ | ✅ | → Hợp lệ, `setFile(file)` |
-| `photo.png` (2MB) | ✅ | ✅ | → Báo lỗi (quá lớn) |
-| `doc.pdf` (100KB) | ❌ | ❌ | → Báo lỗi (không phải ảnh) |
-| `video.mp4` (5MB) | ✅ | ❌ | → Báo lỗi (cả hai) |
+| `photo.jpg` (500KB) | Không | Có | Hợp lệ → `setFile(file)` |
+| `photo.png` (2MB) | Có | Có | Báo lỗi (quá lớn) |
+| `doc.pdf` (100KB) | Không | Không | Báo lỗi (không phải ảnh) |
+| `video.mp4` (5MB) | Có | Không | Báo lỗi (cả hai) |
 
 ### So sánh 2 cách kiểm tra định dạng:
 
-#### Cách cũ — Whitelist (chặt):
+**Cách cũ — Whitelist (chặt, chỉ cho JPEG và PNG):**
 
 ```typescript
 ['image/jpeg', 'image/png'].includes(fileFromLocal.type)
-// Chỉ cho JPEG và PNG. WebP, GIF, BMP... đều bị chặn.
+// WebP, GIF, BMP... đều bị chặn
 ```
 
-#### Cách mới — Contains check (mở hơn):
+**Cách mới — Contains check (mở hơn, cho mọi loại ảnh):**
 
 ```typescript
 fileFromLocal.type.includes('image')
-// Cho qua bất kỳ ảnh nào: image/jpeg, image/png, image/webp, image/gif...
+// image/jpeg ✅, image/png ✅, image/webp ✅, image/gif ✅
+// application/pdf ❌, video/mp4 ❌
 ```
 
-**Tuy nhiên**, trong input HTML vẫn có:
+Tuy nhiên, HTML input vẫn giới hạn:
 
 ```tsx
 <input accept='.jpg,.jpeg,.png' />
 ```
 
-→ Browser vẫn chỉ **hiện** file `.jpg/.jpeg/.png` trong hộp thoại chọn file. Nhưng `accept` chỉ là gợi ý UI, user vẫn có thể đổi filter sang "All Files" và chọn file khác → lúc đó JavaScript check sẽ chặn.
+Attribute `accept` là **gợi ý cho browser** hiển thị chỉ file phù hợp trong hộp thoại. Nhưng user vẫn có thể đổi filter sang "All Files" và chọn file khác → JavaScript check sẽ chặn lại.
 
 ### Bỏ `setError` / `clearErrors` cho avatar:
 
 | | Cách cũ | Cách mới |
 |---|---|---|
-| Sai ảnh | Toast + `setError('avatar')` → lỗi hiện DƯỚI ảnh + Toast hiện TRÊN | Chỉ Toast |
-| Đúng ảnh | `clearErrors('avatar')` + `setValue('avatar')` | Chỉ `setFile(file)` |
+| File không hợp lệ | Toast + `setError('avatar', ...)` → 2 nơi hiển thị lỗi | Chỉ Toast |
+| File hợp lệ | `clearErrors('avatar')` + `setValue('avatar')` | Chỉ `setFile(file)` |
 
-**Trade-off:** Code ngắn hơn, nhưng user ít thông tin hơn (không có lỗi inline dưới field avatar). Trong trường hợp này, toast là đủ vì user sẽ thấy ngay.
+Code ngắn hơn, nhưng mất lỗi inline dưới field avatar. Đây là trade-off có chủ ý — toast đủ để thông báo cho user biết ngay.
 
 ### Thay đổi nhỏ: `>` thành `>=`
 
 ```diff
-- fileFromLocal.size > 1024 * 1024         // Đúng 1MB: cho qua
-+ fileFromLocal.size >= config.maxSizeUploadAvatar   // Đúng 1MB: cũng chặn
+- fileFromLocal.size > 1024 * 1024         // File đúng 1MB: cho qua
++ fileFromLocal.size >= config.maxSizeUploadAvatar   // File đúng 1MB: cũng chặn
 ```
 
-→ Quy tắc rõ ràng hơn: "tối đa 1MB" nghĩa là **dưới** 1MB, không phải "bằng 1MB cũng OK".
+Quy tắc rõ ràng hơn: "tối đa 1MB" nghĩa là **dưới** 1MB, không bao gồm đúng 1MB.
 
 ---
 
-## 📁 3. Fix Bug: Chọn Lại Cùng 1 File Không Trigger `onChange`
+## 3. Fix Bug: Chọn Lại Cùng File Không Trigger `onChange`
 
-Đây là 1 bug kinh điển của HTML input file.
-
-### Bug gì?
+### Mô tả bug:
 
 ```
-Bước 1: User chọn "avatar.png" → onChange chạy → báo lỗi (ảnh quá lớn)
-Bước 2: User resize ảnh, chọn lại "avatar.png" (cùng tên) → onChange KHÔNG chạy!
+Bước 1: User chọn "avatar.png" → onChange chạy → báo lỗi "ảnh quá lớn"
+Bước 2: User resize ảnh, chọn lại "avatar.png" (cùng tên file) → onChange KHÔNG chạy!
+Kết quả: Người dùng bối rối, không biết có lỗi hay không
 ```
 
-**Tại sao?** Browser so sánh value cũ và mới. Nếu cùng file name → browser nghĩ "không có thay đổi" → không bắn event `onChange`.
+### Nguyên nhân:
 
-### Fix 1: Reset trước khi chọn (`onClick`)
+Browser theo dõi `value` của input file (chứa đường dẫn file). Khi user chọn file:
+- Nếu file khác file cũ → `value` thay đổi → browser trigger `onChange`
+- Nếu file giống file cũ (cùng tên) → `value` không thay đổi → browser bỏ qua → `onChange` không chạy
+
+### Fix 1: Reset `value` TRƯỚC khi mở hộp thoại (`onClick`)
 
 ```tsx
 <input
   type='file'
   onClick={(event) => {
-    ;(event.target as any).value = null     // ← Reset TRƯỚC khi mở hộp thoại
+    ;(event.target as any).value = null   // Xóa file cũ TRƯỚC khi mở hộp thoại
   }}
   onChange={onFileChange}
 />
 ```
 
-**Cú pháp `;(event.target as any).value = null`:**
-
 | Phần | Giải thích |
 |------|-----------|
-| `;` ở đầu | Đề phòng lỗi ASI (Automatic Semicolon Insertion) trong JavaScript |
-| `(event.target as any)` | TypeScript cast — vì `event.target` không có property `value` theo type mặc định |
-| `.value = null` | Xóa giá trị cũ của input |
+| `;` ở đầu | Bảo vệ khỏi lỗi ASI (Automatic Semicolon Insertion) — JavaScript đôi khi tự thêm `;` sai chỗ nếu dòng trước đó không có |
+| `(event.target as any)` | Cast sang `any` vì TypeScript không khai báo `value` là `null`-able cho input type=file |
+| `.value = null` | Xóa giá trị cũ của input — sau đó bất kỳ file nào user chọn đều được coi là "mới" |
 
-**Luồng:**
-
+Luồng sau khi fix:
 ```
 User click input file
-   ↓
-onClick chạy → value = null (xóa file cũ)
-   ↓
-Browser mở hộp thoại chọn file
-   ↓
+    ↓
+onClick: value = null (xóa file cũ)
+    ↓
+Browser mở hộp thoại
+    ↓
 User chọn "avatar.png" → browser so sánh: null ≠ "avatar.png" → CÓ thay đổi!
-   ↓
-onChange chạy → onFileChange xử lý file ✅
+    ↓
+onChange chạy → onFileChange xử lý ✅
 ```
 
-### Fix 2: Reset sau khi xử lý (`setAttribute`)
+### Fix 2: Reset `value` SAU khi xử lý (`setAttribute`)
 
 ```typescript
 const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
   const fileFromLocal = event.target.files?.[0]
-  fileInputRef.current?.setAttribute('value', '')     // ← Reset SAU khi đọc file
+  fileInputRef.current?.setAttribute('value', '')   // Reset SAU khi đọc file
   // ... xử lý validate ...
 }
 ```
 
-### Tại sao có 2 lần reset?
+### Tại sao cần 2 lần reset?
 
 ```
-onClick: reset TRƯỚC → đảm bảo onChange luôn trigger
-onFileChange: reset SAU → đảm bảo value sạch cho lần chọn tiếp theo
-→ Double safety: không bao giờ bị "stuck" vì value cũ
+onClick:        Reset TRƯỚC → đảm bảo onChange luôn trigger khi user chọn file
+onFileChange:   Reset SAU   → đảm bảo trạng thái input sạch cho lần chọn tiếp theo
+→ Double safety: không bao giờ bị "stuck" với value cũ trong bất kỳ tình huống nào
 ```
 
-> 💡 Hai cách reset input file:
-> - `element.value = null` (DOM property)
-> - `element.setAttribute('value', '')` (HTML attribute)
-> 
-> Cả hai đều hoạt động. Commit này dùng cả 2 ở 2 thời điểm khác nhau để an toàn tối đa.
+**Hai cách reset input file:**
+- `element.value = null` — gán trực tiếp vào DOM property
+- `element.setAttribute('value', '')` — thông qua HTML attribute
+
+Cả hai đều hoạt động — commit này dùng cả 2 ở 2 thời điểm khác nhau để đảm bảo an toàn tối đa.
 
 ---
 
-## 📁 4. Toast Gom Thành 1 Message
+## 4. Toast — Gom Thành 1 Message
 
-### Trước — 2 toast riêng:
+### Trước — 2 toast riêng biệt:
 
 ```typescript
-toast.error('Định dạng ảnh không hợp lệ')      // Nếu sai type
-toast.error('Dung lượng ảnh vượt quá 1 MB')     // Nếu sai size
+toast.error('Định dạng ảnh không hợp lệ')    // Nếu sai type
+toast.error('Dung lượng ảnh vượt quá 1 MB')  // Nếu sai size
 ```
 
 ### Sau — 1 toast chung:
 
 ```typescript
-toast.error(`Dụng lượng file tối đa 1 MB. Định dạng:.JPEG, .PNG`, {
+toast.error(`Dung lượng file tối đa 1 MB. Định dạng:.JPEG, .PNG`, {
   position: 'top-center'
 })
 ```
 
-**Trade-off:**
-
 | | 2 toast riêng | 1 toast chung |
 |---|---|---|
-| **Chính xác** | ✅ User biết lỗi gì cụ thể | ❌ Không rõ lỗi định dạng hay dung lượng |
-| **Đơn giản** | ❌ Code dài hơn | ✅ Code ngắn, 1 message duy nhất |
-| **UX** | Toast có thể chồng nhau | Sạch sẽ, 1 toast duy nhất |
+| **Chính xác** | User biết lỗi gì cụ thể | Không rõ lỗi nào |
+| **Đơn giản** | Code nhiều nhánh hơn | Code ngắn, một nhánh |
+| **UX** | Hai toast có thể chồng nhau | Sạch sẽ, một thông báo |
 
-Trong trường hợp này, 1 toast chung hiệu quả hơn vì user chỉ cần biết: "ảnh phải < 1MB và phải là JPEG/PNG".
-
----
-
-## 🔗 So Sánh Trước/Sau
-
-```
-Commit 30c8fa5 (trước):                     Commit c28219c (sau):
-┌─────────────────────────────┐             ┌─────────────────────────────┐
-│ Validate:                   │             │ Validate:                   │
-│ - 2 if riêng (type + size)  │     →       │ - 1 if gom (type + size)    │
-│ - setError + clearErrors    │             │ - Chỉ toast                 │
-│ - hard-code 1024*1024       │             │ - config.maxSizeUploadAvatar│
-│                             │             │                             │
-│ Bug:                        │             │ Fix:                        │
-│ - Chọn lại cùng file       │     →       │ - onClick: value = null     │
-│   → onChange không chạy     │             │ - setAttribute('value', '') │
-└─────────────────────────────┘             └─────────────────────────────┘
-```
+Trong trường hợp này 1 toast chung đủ — message đã bao gồm cả 2 rule nên user biết cần làm gì.
 
 ---
 
-## 🔗 Luồng Hoạt Động Sau Commit
+## So Sánh Trước/Sau
+
+```
+Commit 30c8fa5 (trước):                   Commit c28219c (sau):
+┌─────────────────────────────────┐       ┌─────────────────────────────────┐
+│ Validate:                       │       │ Validate:                       │
+│ - 2 if riêng (type + size)     │  →    │ - 1 if gom (type || size)       │
+│ - setError + clearErrors        │       │ - Chỉ toast                     │
+│ - 1024 * 1024 (magic number)   │       │ - config.maxSizeUploadAvatar     │
+│                                 │       │                                 │
+│ Bug:                            │       │ Fix:                            │
+│ - Chọn lại cùng file           │  →    │ - onClick: value = null         │
+│   → onChange không chạy         │       │ - setAttribute('value', '')     │
+└─────────────────────────────────┘       └─────────────────────────────────┘
+```
+
+---
+
+## Luồng Hoạt Động Sau Commit
 
 ```
 1. User bấm "Chọn ảnh"
-2. onClick → value = null (reset input để lần sau luôn trigger onChange)
+2. onClick → value = null (reset để lần sau luôn trigger onChange)
 3. Browser mở hộp thoại chọn file
 4. User chọn "photo.jpg"
 5. onChange → onFileChange:
@@ -314,14 +313,14 @@ Commit 30c8fa5 (trước):                     Commit c28219c (sau):
 
 ---
 
-## 📌 Kiến Thức Mới
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **Magic Number → Named Constant** | Thay `1024 * 1024` bằng `config.maxSizeUploadAvatar` — dễ đọc, dễ bảo trì |
-| **Input file reset trick** | `value = null` (onClick) + `setAttribute('value', '')` (onChange) — fix bug chọn lại cùng file |
-| **`>` vs `>=`** | `> 1MB` cho phép đúng 1MB, `>= 1MB` chặn cả đúng 1MB. Chọn `>=` rõ ràng hơn |
-| **MIME type check** | `file.type.includes('image')` mở hơn whitelist `['image/jpeg', 'image/png']` |
-| **`accept` attribute** | Chỉ là gợi ý cho browser hiển thị file filter — **không** chặn thật sự |
-| **ASI safe semicolon** | `;(expr)` — dấu `;` ở đầu tránh lỗi khi JS tự thêm semicolon sai chỗ |
-| **Toast vs Inline Error** | Toast = thông báo nhanh, biến mất. Inline error = hiện dưới field, tồn tại lâu |
+| **Magic Number → Named Constant** | Thay `1024 * 1024` bằng `config.maxSizeUploadAvatar`. Dễ đọc, dễ bảo trì, thay đổi ở một chỗ. |
+| **Input file reset trick** | `value = null` (onClick) + `setAttribute('value', '')` (onChange) — 2 lần reset ở 2 thời điểm để đảm bảo `onChange` luôn trigger kể cả khi chọn lại cùng file. |
+| **`>` vs `>=`** | `> 1MB` cho phép file đúng 1MB, `>= 1MB` chặn cả file đúng 1MB. Dùng `>=` nhất quán với giải thích "tối đa 1MB". |
+| **MIME type check** | `file.type.includes('image')` mở hơn whitelist `['image/jpeg', 'image/png']` — cho phép thêm định dạng ảnh mới mà không cần sửa code. |
+| **`accept` attribute** | Chỉ là gợi ý cho browser hiển thị filter trong hộp thoại. Không chặn thật sự — JavaScript phải check lại để đảm bảo. |
+| **ASI safe semicolon** | `;(expr)` — dấu `;` ở đầu dòng là "biện pháp phòng thủ" tránh lỗi khi JavaScript Automatic Semicolon Insertion thêm `;` sai chỗ. Phổ biến trong IIFE và expression statement. |
+| **Toast vs Inline Error** | Toast = thông báo nhanh, tự biến mất, phù hợp khi cần báo lỗi ngay. Inline error = hiện dưới field, tồn tại lâu, phù hợp khi user cần sửa dữ liệu. |

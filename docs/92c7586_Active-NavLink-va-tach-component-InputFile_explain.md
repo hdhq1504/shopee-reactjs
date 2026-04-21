@@ -1,37 +1,41 @@
 # 92c7586 — feat: Active NavLink cho UserSideNav và tách component InputFile
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
 Commit này thực hiện **2 việc chính**:
 
-1. **Tách `InputFile` thành component riêng** — Di chuyển toàn bộ logic chọn file ảnh (hidden input, validate, reset) ra khỏi `Profile.tsx` thành component tái sử dụng.
-2. **Active NavLink cho UserSideNav** — Đổi `<Link>` thành `<NavLink>` để menu bên trái **tự động highlight** link đang active (cam) dựa trên URL hiện tại.
+1. **Tách `InputFile` thành component riêng** — Di chuyển toàn bộ logic chọn file ảnh (hidden input, validate, reset) ra khỏi `Profile.tsx` thành component có thể tái sử dụng.
+2. **Active NavLink cho UserSideNav** — Đổi `<Link>` thành `<NavLink>` để menu bên trái tự động highlight link đang active (màu cam) dựa trên URL hiện tại.
 
 ---
 
-## 📁 Tổng Quan Các File Thay Đổi
+## Các File Thay Đổi
 
 | File | Loại | Vai trò |
 |------|------|---------|
-| `src/components/InputFile/InputFile.tsx` | **Tạo mới** | Component tái sử dụng cho chọn + validate file ảnh |
-| `src/components/InputFile/index.ts` | **Tạo mới** | Barrel export |
-| `src/pages/User/pages/Profile/Profile.tsx` | **Sửa** | Bỏ logic file, dùng `<InputFile />` thay thế |
-| `src/pages/User/components/UserSideNav/UserSideNav.tsx` | **Sửa** | Đổi `Link` → `NavLink` + classNames dynamic |
+| `src/components/InputFile/InputFile.tsx` | Tạo mới | Component tái sử dụng cho chọn + validate file ảnh |
+| `src/components/InputFile/index.ts` | Tạo mới | Barrel export |
+| `src/pages/User/pages/Profile/Profile.tsx` | Sửa | Bỏ logic file, dùng `<InputFile />` thay thế |
+| `src/pages/User/components/UserSideNav/UserSideNav.tsx` | Sửa | Đổi `Link` → `NavLink` + classNames động |
 
 ---
 
-# PHẦN 1: Tách Component `InputFile`
+# Phần 1: Tách Component `InputFile`
 
-## Vấn đề trước khi tách
+## Vấn Đề Trước Khi Tách
 
-`Profile.tsx` đang chứa quá nhiều thứ:
+`Profile.tsx` đang chứa quá nhiều trách nhiệm:
 - Logic form (react-hook-form, validate, submit)
-- Logic upload ảnh (mutation)
-- Logic **chọn file** (hidden input, ref, validate type/size, reset value)
+- Logic upload ảnh (mutation API)
+- Logic **chọn file** (hidden input, ref click, validate type/size, reset value, toast lỗi)
 
-Trong đó, logic "chọn file" hoàn toàn **độc lập** — không phụ thuộc vào form profile. Nếu sau này cần upload ảnh ở trang khác (ChangePassword, Chat...), sẽ phải copy-paste.
+Logic "chọn file" hoàn toàn **độc lập** — không liên quan đến data của form profile. Nếu sau này cần upload ảnh ở trang khác (trang sản phẩm, trang tin tức...), sẽ phải copy-paste toàn bộ đoạn code đó.
 
-## 📁 `InputFile.tsx` — Component Mới
+**Nguyên tắc Single Responsibility:** Mỗi component chỉ nên có một trách nhiệm chính. `Profile.tsx` nên lo về quản lý form profile, còn việc chọn file nên giao cho component riêng.
+
+---
+
+## `InputFile.tsx` — Component Mới
 
 ```tsx
 import { useRef } from 'react'
@@ -39,7 +43,7 @@ import { toast } from 'react-toastify'
 import config from '~/constants/config'
 
 interface Props {
-  onChange?: (file?: File) => void       // ← Callback trả file cho parent
+  onChange?: (file?: File) => void   // Callback trả file hợp lệ cho parent
 }
 
 export default function InputFile({ onChange }: Props) {
@@ -47,22 +51,29 @@ export default function InputFile({ onChange }: Props) {
 
   const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const fileFromLocal = event.target.files?.[0]
+
+    // Reset value ngay sau khi đọc file — fix bug chọn lại cùng file
     fileInputRef.current?.setAttribute('value', '')
-    if (fileFromLocal && (fileFromLocal.size >= config.maxSizeUploadAvatar || !fileFromLocal.type.includes('image'))) {
-      toast.error(`Dụng lượng file tối đa 1 MB. Định dạng:.JPEG, .PNG`, {
+
+    if (
+      fileFromLocal &&
+      (fileFromLocal.size >= config.maxSizeUploadAvatar || !fileFromLocal.type.includes('image'))
+    ) {
+      toast.error(`Dung lượng file tối đa 1 MB. Định dạng:.JPEG, .PNG`, {
         position: 'top-center'
       })
     } else {
-      onChange && onChange(fileFromLocal)    // ← Hợp lệ → gọi callback trả file cho parent
+      onChange && onChange(fileFromLocal)   // Hợp lệ → trả file lên parent
     }
   }
 
   const handleUpload = () => {
-    fileInputRef.current?.click()
+    fileInputRef.current?.click()   // Kích hoạt hộp thoại chọn file
   }
 
   return (
     <>
+      {/* Input ẩn — browser mở hộp thoại khi được click */}
       <input
         className='hidden'
         type='file'
@@ -70,9 +81,11 @@ export default function InputFile({ onChange }: Props) {
         ref={fileInputRef}
         onChange={onFileChange}
         onClick={(event) => {
-          ;(event.target as any).value = null
+          ;(event.target as any).value = null   // Reset trước khi mở hộp thoại
         }}
       />
+
+      {/* Nút đẹp — thay thế UI mặc định xấu của input file */}
       <button
         className='flex h-10 items-center justify-end rounded-sm border bg-white px-6 text-sm text-gray-600 shadow-sm'
         type='button'
@@ -89,101 +102,111 @@ export default function InputFile({ onChange }: Props) {
 
 | Trách nhiệm | Nằm trong `InputFile` | Parent cần làm |
 |-------------|:---:|---|
-| Hidden input + ref click | ✅ | Không cần biết |
-| Reset value (fix bug chọn lại cùng file) | ✅ | Không cần biết |
-| Validate type (image) + size (≤ 1MB) | ✅ | Không cần biết |
-| Toast lỗi | ✅ | Không cần biết |
-| Xử lý file hợp lệ | ❌ | Nhận qua `onChange` callback |
+| Hidden input + kích hoạt click | Có | Không cần biết |
+| Reset value (fix bug chọn lại cùng file) | Có | Không cần biết |
+| Validate type (image) + size (≤ 1MB) | Có | Không cần biết |
+| Toast lỗi khi file không hợp lệ | Có | Không cần biết |
+| Xử lý file hợp lệ | Không | Nhận qua `onChange` callback |
 
-### API đơn giản — chỉ 1 prop:
+### API đơn giản — chỉ 1 prop
 
 ```tsx
 <InputFile onChange={(file) => setFile(file)} />
 ```
 
-Parent chỉ cần truyền 1 callback `onChange` — khi user chọn file hợp lệ, callback sẽ nhận File object.
+Parent chỉ cần truyền một callback `onChange`. Khi user chọn file hợp lệ, callback nhận `File` object. Khi file không hợp lệ, callback không được gọi — toast lỗi tự hiện.
 
-> 💡 **Nguyên tắc thiết kế:** Component tốt = API đơn giản + đóng gói logic phức tạp bên trong. Parent không cần biết "bên trong có hidden input, ref, reset value..." — chỉ cần biết "truyền onChange → nhận File".
+**Nguyên tắc thiết kế component tốt:** API đơn giản, đóng gói logic phức tạp bên trong. Parent không cần biết chi tiết implementation — "truyền onChange → nhận File khi hợp lệ".
 
 ---
 
-## 📁 `Profile.tsx` — Sau Khi Tách
+## `Profile.tsx` — Sau Khi Tách
 
-### Code bị xóa (di chuyển sang InputFile):
+### Code bị xóa (di chuyển vào InputFile):
 
 ```diff
 - import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 + import { useContext, useEffect, useMemo, useState } from 'react'
-                                        ↑ Bỏ useRef (đã vào InputFile)
+                            ↑ Bỏ useRef — đã chuyển vào InputFile
 
-- import config from '~/constants/config'
-+ import InputFile from '~/components/InputFile'
-  ↑ Không cần config nữa (InputFile tự validate)
-```
+- const fileInputRef = useRef<HTMLInputElement>(null)
 
-```diff
-- const fileInputRef = useRef<HTMLInputElement>(null)     ← Chuyển vào InputFile
-
-- const onFileChange = (event) => { ... }                 ← 12 dòng logic validate
+- const onFileChange = (event) => {          ← 12 dòng logic validate
+-   const fileFromLocal = event.target.files?.[0]
+-   if (!fileFromLocal.type.includes('image')) { ... }
+-   if (fileFromLocal.size >= config.maxSizeUploadAvatar) { ... }
+-   ...
+- }
 - const handleUpload = () => { fileInputRef.current?.click() }
-+ const handleChangeFile = (file?: File) => {             ← Chỉ còn 1 dòng
+
++ const handleChangeFile = (file?: File) => {  ← Chỉ còn 1 dòng
 +   setFile(file)
 + }
 ```
 
+### JSX thay đổi:
+
 ```diff
-  {/* TRƯỚC: ~20 dòng JSX (hidden input, onClick reset, button) */}
-- <input className='hidden' type='file' ... />
+  {/* TRƯỚC: ~5 dòng */}
+- <input className='hidden' type='file' accept='.jpg,.jpeg,.png'
+-        ref={fileInputRef} onChange={onFileChange}
+-        onClick={(event) => { ... }} />
 - <input type='hidden' {...register('avatar')} />
 - <button type='button' onClick={handleUpload}>Chọn ảnh</button>
 
-  {/* SAU: 1 dòng duy nhất */}
+  {/* SAU: 1 dòng */}
 + <InputFile onChange={handleChangeFile} />
 ```
 
 ### So sánh trước/sau:
 
 ```
-TRƯỚC Profile.tsx (~255 dòng):              SAU Profile.tsx (~224 dòng):
-┌────────────────────────────────┐          ┌────────────────────────────────┐
-│ Form logic (useForm, validate) │          │ Form logic (useForm, validate) │
-│ Upload logic (mutation)        │          │ Upload logic (mutation)        │
-│ ✂ File logic (ref, validate,   │    →     │ <InputFile onChange={...} />   │  ← 1 dòng
-│   reset, hidden input, button) │          │                                │
-│ JSX (~250 dòng)               │          │ JSX (~220 dòng)               │
-└────────────────────────────────┘          └────────────────────────────────┘
-                                                              ↑ Gọn hơn ~30 dòng
+TRƯỚC Profile.tsx (~255 dòng):           SAU Profile.tsx (~224 dòng):
+┌────────────────────────────────┐       ┌────────────────────────────────┐
+│ Form logic (useForm, validate) │       │ Form logic (useForm, validate) │
+│ Upload logic (mutation)        │       │ Upload logic (mutation)        │
+│ File logic: (ref, validate,    │  →    │ <InputFile onChange={...} />   │  ← 1 dòng
+│   reset, hidden input, button) │       │                                │
+└────────────────────────────────┘       └────────────────────────────────┘
+                                          ↑ Gọn hơn ~30 dòng
 ```
 
 ---
 
-# PHẦN 2: Active NavLink Cho UserSideNav
+# Phần 2: Active NavLink Cho UserSideNav
 
-## Vấn đề trước đây
+## Vấn Đề Trước Đây
 
-Thanh menu bên trái dùng `<Link>` — tất cả link đều cùng màu, **không biết đang ở trang nào**:
+Thanh menu bên trái dùng `<Link>` với `className` cố định — link nào cũng trông giống nhau, **không ai biết đang ở trang nào**:
 
+```tsx
+// TRƯỚC — className cứng, luôn một màu
+<Link to={path.profile} className='text-orange'>Tài khoản của tôi</Link>
+<Link to={path.changePassword} className='text-gray-600'>Đổi mật khẩu</Link>
+<Link to={path.historyPurchase} className='text-gray-600'>Đơn mua</Link>
 ```
+
+Kết quả:
+```
+URL: /user/password — Đang ở trang Đổi mật khẩu, nhưng nhìn menu không biết!
 ┌──────────────────────┐
-│ Tài khoản của tôi    │  ← text-orange (cứng)
-│ Đổi mật khẩu        │  ← text-gray-600 (cứng)
-│ Đơn mua             │  ← text-gray-600 (cứng)
+│ 🟠 Tài khoản        │  ← Luôn cam (nghĩ đang ở đây, nhưng không phải!)
+│ ⚫ Đổi mật khẩu    │  ← Luôn xám (nghĩ không active, nhưng thực ra đang ở đây)
+│ ⚫ Đơn mua          │
 └──────────────────────┘
 ```
 
-"Tài khoản của tôi" luôn cam dù user đang ở trang nào — vì dùng `className` cố định.
-
-## Giải pháp: `<NavLink>` + `classNames`
+## Giải Pháp: `<NavLink>` + `classNames`
 
 ### `<NavLink>` là gì?
 
-`NavLink` là phiên bản nâng cấp của `Link` trong React Router. Nó có thêm 1 khả năng đặc biệt: **biết mình có đang active hay không** (URL hiện tại match với `to` prop).
+`NavLink` là phiên bản nâng cấp của `Link` trong React Router. Tính năng đặc biệt của nó: `className` có thể là **một hàm** nhận vào object `{ isActive }` — `isActive` là `true` khi URL hiện tại match với `to` prop.
 
 ```tsx
-// Link — className luôn cố định
+// Link — className luôn cố định, không biết active hay không
 <Link to='/user/profile' className='text-orange'>Tài khoản</Link>
 
-// NavLink — className là HÀM, nhận { isActive }
+// NavLink — className là hàm, biết trạng thái active
 <NavLink
   to='/user/profile'
   className={({ isActive }) => isActive ? 'text-orange' : 'text-gray-600'}
@@ -202,8 +225,8 @@ import { NavLink } from 'react-router-dom'
   to={path.profile}
   className={({ isActive }) =>
     classNames('flex items-center capitalize transition-colors', {
-      'text-orange': isActive,        // ← Cam khi active
-      'text-gray-600': !isActive      // ← Xám khi không active
+      'text-orange': isActive,      // Cam khi đang ở trang này
+      'text-gray-600': !isActive    // Xám khi không ở trang này
     })
   }
 >
@@ -211,16 +234,30 @@ import { NavLink } from 'react-router-dom'
 </NavLink>
 ```
 
-### `classNames` library hoạt động thế nào?
+### Thư viện `classnames` hoạt động thế nào?
 
 ```typescript
 import classNames from 'classnames'
 
-classNames('base-class', {
-  'active-class': true,       // ← Điều kiện true → thêm class
-  'inactive-class': false     // ← Điều kiện false → bỏ class
+classNames(
+  'class-luôn-áp-dụng',   // Kiểu string — lúc nào cũng có trong kết quả
+  {
+    'class-có-điều-kiện': true,    // Điều kiện true → thêm class
+    'class-khác': false             // Điều kiện false → không thêm
+  }
+)
+// → "class-luôn-áp-dụng class-có-điều-kiện"
+```
+
+Ứng dụng cụ thể:
+
+```typescript
+classNames('flex items-center capitalize transition-colors', {
+  'text-orange': isActive,      // true → thêm
+  'text-gray-600': !isActive    // false → không thêm
 })
-// → "base-class active-class"
+// Khi active: "flex items-center capitalize transition-colors text-orange"
+// Khi không active: "flex items-center capitalize transition-colors text-gray-600"
 ```
 
 ### Kết quả thực tế:
@@ -228,21 +265,20 @@ classNames('base-class', {
 ```
 URL: /user/profile                    URL: /user/password
 ┌──────────────────────────┐          ┌──────────────────────────┐
-│ 🟠 Tài khoản của tôi     │          │ ⚫ Tài khoản của tôi     │
-│ ⚫ Đổi mật khẩu          │          │ 🟠 Đổi mật khẩu          │
-│ ⚫ Đơn mua               │          │ ⚫ Đơn mua               │
+│ 🟠 Tài khoản của tôi    │          │ ⚫ Tài khoản của tôi    │
+│ ⚫ Đổi mật khẩu         │          │ 🟠 Đổi mật khẩu         │
+│ ⚫ Đơn mua              │          │ ⚫ Đơn mua              │
 └──────────────────────────┘          └──────────────────────────┘
-       ↑ Profile active                     ↑ Password active
+       Profile active                       Password active
 ```
 
 ### So sánh `Link` vs `NavLink`:
 
-| | `<Link>` | `<NavLink>` |
-|---|---|---|
-| **Chức năng** | Navigate đến URL | Navigate + biết trạng thái active |
-| **`className`** | String cố định | String HOẶC **Function** nhận `{ isActive }` |
-| **Khi nào dùng** | Link bình thường (logo, sản phẩm...) | Menu navigation (sidebar, tabs, breadcrumb...) |
-| **Performance** | Nhẹ hơn một chút | Nặng hơn chút (phải so sánh URL) |
+| Tính năng | `<Link>` | `<NavLink>` |
+|-----------|---------|------------|
+| Chức năng | Navigate đến URL | Navigate + biết trạng thái active |
+| `className` | String cố định | String hoặc **Function** nhận `{ isActive }` |
+| Khi nào dùng | Link bình thường (logo, card sản phẩm...) | Navigation menu (sidebar, tabs, breadcrumb...) |
 
 ### Áp dụng cho cả 3 menu items:
 
@@ -263,51 +299,51 @@ URL: /user/profile                    URL: /user/password
 </NavLink>
 ```
 
-> 💡 Lưu ý: Avatar và "Sửa hồ sơ" phía trên vẫn dùng `<Link>` bình thường — vì chúng không phải menu item cần highlight.
+Avatar và "Sửa hồ sơ" phía trên vẫn dùng `<Link>` bình thường — vì chúng không phải menu item cần highlight active state.
 
 ---
 
-## 🔗 Tóm Tắt Trước/Sau
+## Tóm Tắt Trước/Sau
 
 ```
 TRƯỚC:
-┌─ Profile.tsx (255 dòng) ──────────────────────┐
-│ useRef, onFileChange, handleUpload            │  ← Logic chọn file nằm ĐÂY
-│ <input hidden>, <button>Chọn ảnh</button>     │  ← UI chọn file nằm ĐÂY
+┌─ Profile.tsx (255 dòng) ───────────────────────┐
+│ useRef, onFileChange, handleUpload             │  ← Logic chọn file nằm đây
+│ <input hidden>, <button>Chọn ảnh</button>     │  ← UI chọn file nằm đây
 │ Form logic, Upload logic, JSX...              │
-└───────────────────────────────────────────────┘
+└────────────────────────────────────────────────┘
 
-┌─ UserSideNav.tsx ─────────────────────────────┐
+┌─ UserSideNav.tsx ──────────────────────────────┐
 │ <Link className='text-orange'>Tài khoản</Link>│  ← Luôn cam (cứng)
-│ <Link className='text-gray'>Đổi MK</Link>     │  ← Luôn xám (cứng)
-└───────────────────────────────────────────────┘
+│ <Link className='text-gray'>Đổi MK</Link>    │  ← Luôn xám (cứng)
+└────────────────────────────────────────────────┘
 
 SAU:
-┌─ InputFile.tsx (51 dòng) ─────────────────────┐
-│ useRef, onFileChange, handleUpload            │  ← Logic chọn file tách RA ĐÂY
-│ <input hidden>, <button>Chọn ảnh</button>     │  ← UI chọn file tách RA ĐÂY
-└───────────────────────────────────────────────┘
+┌─ InputFile.tsx (51 dòng) ──────────────────────┐
+│ useRef, onFileChange, handleUpload             │  ← Logic chọn file tách ra đây
+│ <input hidden>, <button>Chọn ảnh</button>     │  ← UI chọn file tách ra đây
+└────────────────────────────────────────────────┘
 
-┌─ Profile.tsx (224 dòng) ──────────────────────┐
+┌─ Profile.tsx (224 dòng) ───────────────────────┐
 │ <InputFile onChange={handleChangeFile} />      │  ← 1 dòng duy nhất
 │ Form logic, Upload logic, JSX...              │
-└───────────────────────────────────────────────┘
+└────────────────────────────────────────────────┘
 
-┌─ UserSideNav.tsx ─────────────────────────────┐
+┌─ UserSideNav.tsx ──────────────────────────────┐
 │ <NavLink className={({isActive}) => ...}>     │  ← Dynamic: cam/xám theo URL
 │ <NavLink className={({isActive}) => ...}>     │
-└───────────────────────────────────────────────┘
+└────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📌 Kiến Thức Mới
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **Component Extraction** | Tách logic + UI ra component riêng khi: (1) code quá dài, (2) có thể tái sử dụng, (3) trách nhiệm riêng biệt |
-| **Callback Props pattern** | Component con nhận `onChange` callback từ parent — khi có sự kiện, gọi callback trả dữ liệu lên |
-| **`<NavLink>`** | Phiên bản nâng cấp của `<Link>` — biết trạng thái active, cho phép `className` là function nhận `{ isActive }` |
-| **`classNames` library** | Utility nối class CSS có điều kiện: `classNames('base', { 'active': true })` → `"base active"` |
-| **Barrel export (`index.ts`)** | `export default InputFile` → cho phép import gọn: `from '~/components/InputFile'` thay vì `from '~/components/InputFile/InputFile'` |
-| **Single Responsibility** | Mỗi component chỉ nên có 1 trách nhiệm: InputFile = chọn file, Profile = quản lý form profile |
+| **Component Extraction** | Tách logic + UI ra component riêng khi: (1) code quá dài, (2) có thể tái sử dụng, (3) có trách nhiệm độc lập. Giúp mỗi component tập trung vào một việc duy nhất. |
+| **Callback Props pattern** | Component con nhận `onChange` callback từ parent. Khi có sự kiện (file được chọn), gọi callback trả dữ liệu lên parent. Parent không biết cơ chế nội bộ — chỉ biết "khi onChange được gọi thì có file hợp lệ". |
+| **`<NavLink>`** | Phiên bản nâng cấp của `<Link>` — biết trạng thái active. `className` có thể là function nhận `{ isActive }` để áp dụng style khác nhau tùy trạng thái URL. |
+| **`classNames` library** | Utility kết hợp CSS class string + object có điều kiện. Tránh viết template literal phức tạp: thay vì `` `base ${isActive ? 'active' : 'inactive'}` `` → dùng `classNames('base', { 'active': isActive, 'inactive': !isActive })`. |
+| **Barrel export (`index.ts`)** | `export { default } from './InputFile'` → cho phép import gọn: `from '~/components/InputFile'` thay vì `from '~/components/InputFile/InputFile'`. |
+| **Single Responsibility Principle** | Mỗi component/module chỉ nên có một lý do để thay đổi. `InputFile` thay đổi chỉ khi logic chọn file thay đổi. `Profile` thay đổi chỉ khi form profile thay đổi. |

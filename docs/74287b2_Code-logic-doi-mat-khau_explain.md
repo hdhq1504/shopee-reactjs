@@ -1,6 +1,6 @@
 # 74287b2 — feat: Code logic đổi mật khẩu
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
 Commit này hoàn thiện chức năng **Đổi mật khẩu** cho trang User Profile. Có 3 file thay đổi chính:
 
@@ -12,26 +12,24 @@ Commit này hoàn thiện chức năng **Đổi mật khẩu** cho trang User Pr
 
 ---
 
-## 📋 Nội Dung Chức Năng
+## Nội Dung Chức Năng
 
 Trang đổi mật khẩu có 3 field:
-- **Mật khẩu cũ** (`password`)
+- **Mật khẩu cũ** (`password`) — để xác nhận danh tính user
 - **Mật khẩu mới** (`new_password`)
-- **Nhập lại mật khẩu** (`confirm_password`)
+- **Nhập lại mật khẩu** (`confirm_password`) — phải khớp với `new_password`
 
 Khi submit:
-1. Validate bằng Yup schema
-2. Gọi API `userApi.updateProfile` với `{ password, new_password }` (bỏ `confirm_password`)
-3. Nếu thành công → toast thành công
-4. Nếu API trả lỗi 422 (Unprocessable Entity) → hiển thị lỗi ngay dưới từng input
+1. Validate bằng Yup schema (client-side)
+2. Gọi API `userApi.updateProfile` với `{ password, new_password }` — bỏ `confirm_password` vì server không cần
+3. Thành công → hiện toast thành công
+4. API trả lỗi 422 (Unprocessable Entity) → hiển thị lỗi ngay dưới từng input
 
 ---
 
-## 📁 Thay Đổi Chi Tiết
+## 1. `rules.ts` — Thêm `userSchema`
 
-### 1. `rules.ts` — Thêm `userSchema`
-
-#### Hàm helper `handleConfirmPasswordYup`
+### Hàm helper `handleConfirmPasswordYup`
 
 ```typescript
 const handleConfirmPasswordYup = (refString: string) => {
@@ -41,18 +39,21 @@ const handleConfirmPasswordYup = (refString: string) => {
     .min(6, 'Độ dài từ 6 - 160 ký tự')
     .max(160, 'Độ dài từ 6 - 160 ký tự')
     .oneOf([yup.ref(refString)], 'Nhập lại password không khớp')
-    //      ↑ yup.ref('new_password') → so sánh với field new_password trong cùng schema
+    //      ↑ yup.ref('new_password') = "lấy giá trị của field new_password trong cùng schema"
 }
 ```
 
-**`yup.ref(refString)`** — Đây là cách Yup tham chiếu đến giá trị của một field khác trong cùng object. Ví dụ:
+**`yup.ref(fieldName)`** — Đây là cách Yup tham chiếu đến giá trị của một field khác trong cùng object đang validate. Ví dụ:
 
 ```typescript
 handleConfirmPasswordYup('new_password')
 // → confirm_password phải === new_password
+// Nếu new_password = 'abc123' thì confirm_password cũng phải là 'abc123'
 ```
 
-#### `userSchema` — Schema dùng cho trang Profile + Đổi mật khẩu
+Hàm nhận `refString` thay vì hardcode `'new_password'` để có thể tái sử dụng với tên field khác nếu cần.
+
+### `userSchema` — Schema dùng chung cho toàn bộ tính năng User
 
 ```typescript
 export const userSchema = yup.object({
@@ -62,46 +63,42 @@ export const userSchema = yup.object({
   avatar: yup.string().max(1000, 'Độ dài tối đa là 1000 ký tự'),
   date_of_birth: yup.date().max(new Date(), 'Hãy chọn một ngày trong quá khứ'),
 
-  // Tái sử dụng passwordRule — biến dùng chung với schema login/register
+  // Tái sử dụng passwordRule — biến định nghĩa một lần, dùng cho cả 2 schema
   password: passwordRule,       // min 6, max 160, required
   new_password: passwordRule,   // giống password
   confirm_password: handleConfirmPasswordYup('new_password')  // phải khớp new_password
 })
 
 export type UserSchema = yup.InferType<typeof userSchema>
-// → TypeScript tự suy ra type từ schema — không cần viết thủ công
 ```
 
-**Tại sao dùng biến `passwordRule` thay vì `schema.fields['password']`?**
+### Tại sao dùng biến `passwordRule` thay vì `schema.fields['password']`?
 
 ```typescript
-// ❌ Không nên — .fields[] trả về kiểu Schema<unknown>, mất type information
+// Cách sai — trả về kiểu Schema<unknown>, mất type information
 password: schema.fields['password'],
-new_password: schema.fields['password'],
 
-// ✅ Nên — biến giữ nguyên kiểu StringSchema<string>, dùng lại ở cả hai schema
+// Cách đúng — giữ nguyên kiểu StringSchema, TypeScript biết chính xác type
 const passwordRule = yup.string().required(...).min(6, ...).max(160, ...)
 
 export const schema = yup.object({ password: passwordRule, ... })
 export const userSchema = yup.object({ password: passwordRule, new_password: passwordRule, ... })
 ```
 
-Nhờ đó `userSchema.pick(['password', 'new_password', 'confirm_password'])` infer đúng kiểu `string`, `yupResolver` hoạt động bình thường.
+TypeScript cần biết chính xác kiểu của từng field trong schema để `userSchema.pick([...])` có thể infer đúng kiểu cho `yupResolver`. Dùng `schema.fields['password']` trả về `Schema<unknown>` → mất thông tin kiểu → `yupResolver` không hoạt động đúng.
 
 ---
 
-### 2. `Input.tsx` — Thêm Toggle Show/Hide Password
-
-Trước commit này, component `Input` không có icon mắt. Bây giờ đã thêm:
+## 2. `Input.tsx` — Thêm Toggle Show/Hide Password
 
 ```typescript
-const [openEye, setOpenEye] = useState(false)   // false = đang ẩn password
+const [openEye, setOpenEye] = useState(false)   // false = đang ẩn password (mắt nhắm)
 
 const handleType = () => {
   if (rest.type === 'password') {
-    return openEye ? 'text' : 'password'   // Mở mắt → hiện text, Nhắm mắt → ẩn lại
+    return openEye ? 'text' : 'password'   // Mở mắt → hiện text; Nhắm mắt → ẩn thành ****
   }
-  return rest.type                          // Không phải password field → giữ nguyên type
+  return rest.type    // Không phải password field → giữ nguyên type gốc
 }
 ```
 
@@ -113,48 +110,45 @@ const handleType = () => {
 {rest.type === 'password' && !openEye && <SvgEyeClosed onClick={toggleEye} />}
 ```
 
-**Tại sao dùng `rest.type` chứ không phải `type` trực tiếp?**
+**Tại sao đọc từ `rest.type` chứ không phải state?**
+
+Component `Input` dùng `...rest` để nhận tất cả HTML input props còn lại, bao gồm `type`. Bên trong, ta cần **đọc `type` gốc** mà người dùng truyền vào (để biết có phải password field không), nhưng **trả về type khác** khi render input thực tế (để toggle show/hide):
 
 ```typescript
-// Props component nhận vào:
 export default function Input({ ..., ...rest }: Props) {
-  // rest = tất cả các HTML input props còn lại, bao gồm type, placeholder, ...
-  
-  // Không thể dùng `type` vì ta override nó bằng handleType()
-  // Nên phải đọc type gốc từ rest để biết có phải password field không
-  const handleType = () => {
-    if (rest.type === 'password') { ... }   // ← Đọc type gốc do người dùng truyền vào
-  }
+  // rest.type = type gốc do parent truyền vào ('password', 'text', 'email'...)
+  // handleType() = type thực tế sẽ dùng (có thể bị override khi toggle)
+
+  return (
+    <input
+      {...rest}
+      type={handleType()}   // Override type của rest
+    />
+  )
 }
 ```
 
+Nếu đọc từ state thay vì `rest.type`, ta không biết field này có phải password field không — vì `openEye` chỉ có giá trị khi đã chuyền `type='password'`.
+
 ---
 
-### 3. `ChangePassword.tsx` — Logic Form Đổi Mật Khẩu
+## 3. `ChangePassword.tsx` — Logic Form Đổi Mật Khẩu
 
-#### Khai báo FormData Type và Schema
+### Khai báo FormData Type và Schema
 
 ```typescript
-// Chọn ra 3 field từ UserSchema để dùng cho form này
+// Chỉ lấy 3 field cần thiết từ UserSchema
 type FormData = Pick<UserSchema, 'password' | 'new_password' | 'confirm_password'>
 
-// Tạo schema con chỉ chứa 3 field đó
+// Tạo schema con chỉ validate 3 field đó
 const passwordSchema = userSchema.pick(['password', 'new_password', 'confirm_password'])
 ```
 
-**Vì sao dùng `.pick()`?**
+`userSchema` có 8 field, nhưng form đổi mật khẩu chỉ có 3 field. Dùng `.pick()` để:
+1. Tránh validate những field không có trong form → không gây lỗi validation giả
+2. Tái sử dụng validation rules đã định nghĩa sẵn trong `userSchema`
 
-`userSchema` có tổng cộng 7 field (name, phone, address, avatar, date_of_birth, password, new_password, confirm_password). Trang đổi mật khẩu chỉ cần 3 field → dùng `.pick()` để cắt bớt:
-
-```typescript
-// userSchema.pick([...]) → tạo schema mới chỉ có các field được chỉ định
-const passwordSchema = userSchema.pick(['password', 'new_password', 'confirm_password'])
-// → { password: ..., new_password: ..., confirm_password: ... }
-```
-
----
-
-#### Setup `useForm`
+### Setup `useForm`
 
 ```typescript
 const {
@@ -168,18 +162,13 @@ const {
     new_password: '',
     confirm_password: ''
   },
-  resolver: yupResolver(passwordSchema)   // ← Kết nối Yup schema với React Hook Form
+  resolver: yupResolver(passwordSchema)   // Kết nối Yup schema với React Hook Form
 })
 ```
 
-**`yupResolver`** — Là cầu nối giữa Yup và React Hook Form:
-- Khi submit, React Hook Form chạy Yup schema để validate
-- Nếu có lỗi → tự động đổ vào `formState.errors`
-- Không cần validate thủ công từng field
+`yupResolver` là adapter kết nối Yup với React Hook Form — khi submit, RHF tự động chạy Yup schema để validate, nếu có lỗi thì tự động đổ vào `formState.errors` mà không cần viết logic validate riêng.
 
----
-
-#### Gọi API
+### Gọi API
 
 ```typescript
 const updateProfileMutation = useMutation({
@@ -187,27 +176,25 @@ const updateProfileMutation = useMutation({
 })
 ```
 
-**`useMutation`** (React Query) — Dùng cho các request **thay đổi dữ liệu** (POST/PUT/PATCH/DELETE):
+**`useMutation`** (TanStack Query) dùng cho các request **thay đổi dữ liệu** (POST/PUT/PATCH/DELETE):
 
 ```typescript
-// Khác với useQuery (đọc data), useMutation cho phép:
-// - Gọi thủ công lúc cần (không tự động chạy)
+// Khác với useQuery (tự động chạy khi mount), useMutation:
+// - Chỉ chạy khi gọi thủ công: mutation.mutate() hoặc mutation.mutateAsync()
 // - Theo dõi trạng thái: isPending, isSuccess, isError
-// - Dùng mutateAsync() để await kết quả
+// - Thường dùng trong event handler (onClick, onSubmit)
 ```
 
----
-
-#### Xử lý Submit
+### Xử Lý Submit
 
 ```typescript
 const onSubmit = handleSubmit(async (data) => {
   try {
-    // omit bỏ field confirm_password — API không cần field này
+    // omit bỏ field confirm_password — API không cần, chỉ để validate ở client
     const res = await updateProfileMutation.mutateAsync(omit(data, ['confirm_password']))
     toast.success(res.data.message)
   } catch (error) {
-    // Xử lý lỗi 422 từ server (validation fail phía backend)
+    // Xử lý lỗi 422 từ server (password cũ sai, password mới không đủ mạnh...)
     if (isAxiosUnprocessableEntityError<ErrorResponse<FormData>>(error)) {
       const formError = error.response?.data.data
       if (formError) {
@@ -225,52 +212,56 @@ const onSubmit = handleSubmit(async (data) => {
 
 **Chi tiết từng phần:**
 
+**`omit(data, ['confirm_password'])`** — Lodash utility bỏ key khỏi object:
+
 ```typescript
-// 1. omit() — từ lodash — bỏ field không cần
+// data = { password: '123456', new_password: '654321', confirm_password: '654321' }
 omit(data, ['confirm_password'])
-// { password: '123456', new_password: '654321', confirm_password: '654321' }
 // → { password: '123456', new_password: '654321' }
+// Server không cần confirm_password — chỉ dùng để validate client-side
+```
 
-// 2. isAxiosUnprocessableEntityError — hàm tự viết để check lỗi 422
-// Lỗi 422 = server nhận được request nhưng validation fail (ví dụ: password cũ sai)
+**Xử lý lỗi 422:** Server có thể trả lỗi từ backend validation (ví dụ: password cũ không đúng). Lỗi trả về dạng object `{ fieldName: 'thông báo lỗi' }`. Code duyệt qua từng key và gắn lỗi lên đúng form field bằng `setError()`:
 
-// 3. setError() — đặt lỗi cho một field cụ thể trong form
+```typescript
+// Server trả: { data: { password: 'Mật khẩu cũ không đúng' } }
 setError('password', {
   message: 'Mật khẩu cũ không đúng',  // Lỗi từ server
-  type: 'Server'
+  type: 'Server'                        // Phân biệt với lỗi client-side ('manual')
 })
-// → Lỗi sẽ hiển thị ngay dưới input password
+// → Lỗi hiện ngay dưới input password
 ```
 
 ---
 
-## 🔄 Luồng Chạy Của Trang Đổi Mật Khẩu
+## Luồng Chạy Của Trang Đổi Mật Khẩu
 
 ```
-User nhập form
+User nhập form: password cũ, password mới, nhập lại password mới
        ↓
 [Nút Lưu] → handleSubmit()
        ↓
-React Hook Form validate (Yup schema)
-       ├── Lỗi client → hiển thị lỗi dưới input, dừng lại
-       └── OK → chạy onSubmit()
+React Hook Form validate (Yup schema):
+       ├── Lỗi client-side (confirm_password không khớp, password quá ngắn...)
+       │       → Hiển thị lỗi dưới input, dừng lại
+       └── Tất cả hợp lệ → chạy onSubmit()
                     ↓
-              gọi updateProfileMutation.mutateAsync()
+              omit(['confirm_password']) → gọi updateProfileMutation.mutateAsync()
                     ├── Thành công → toast.success()
                     └── Lỗi 422   → setError() từng field → hiển thị lỗi server dưới input
 ```
 
 ---
 
-## 📌 Kiến Thức Mới Trong Commit Này
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **`yup.ref(fieldName)`** | Tham chiếu đến giá trị field khác trong cùng schema — dùng để so sánh hai field với nhau |
-| **`schema.pick([...])`** | Tạo schema con chỉ chứa các field được chọn — tránh lặp code validation |
-| **`yup.InferType<typeof schema>`** | TypeScript tự suy ra type từ Yup schema — không cần khai báo type thủ công |
-| **`useMutation`** | React Query hook cho request thay đổi dữ liệu — gọi thủ công, theo dõi loading/error |
-| **`omit(obj, [keys])`** | Lodash function — tạo object mới loại bỏ các key được chỉ định |
-| **`setError(field, { message })`** | React Hook Form — đặt lỗi thủ công cho một field (thường dùng cho lỗi từ server) |
-| **`type: 'Server'`** | Label phân biệt lỗi gốc — `'Server'` = lỗi từ backend, `'manual'` = lỗi đặt thủ công |
-| **Toggle show/hide password** | Dùng `useState` + SVG icon để chuyển đổi `type='password'` ↔ `type='text'` |
+| **`yup.ref(fieldName)`** | Tham chiếu đến giá trị của field khác trong cùng schema. Dùng để so sánh hai field với nhau, ví dụ `confirm_password` phải khớp `new_password`. |
+| **`schema.pick([...])`** | Tạo schema con chỉ chứa các field được chỉ định. Tái sử dụng validation rules mà không phải viết lại. |
+| **`yup.InferType<typeof schema>`** | TypeScript tự suy ra type từ Yup schema — không cần khai báo interface thủ công, tránh bất đồng bộ giữa schema và type. |
+| **`useMutation`** | TanStack Query hook cho request thay đổi dữ liệu. Chạy thủ công (không tự động), theo dõi trạng thái loading/error/success. |
+| **`omit(obj, [keys])`** | Lodash utility — tạo object mới loại bỏ các key chỉ định. Dùng khi cần bỏ field client-only (confirm_password) trước khi gửi lên server. |
+| **`setError(field, { message })`** | React Hook Form — đặt lỗi thủ công cho một field. Thường dùng khi muốn hiển thị lỗi từ server response ngay dưới input tương ứng. |
+| **`type: 'Server'`** | Label tùy chỉnh phân biệt nguồn gốc lỗi: `'Server'` = lỗi từ backend, `'manual'` = lỗi đặt thủ công trong code. Giúp debug và có thể dùng để phân biệt cách hiển thị. |
+| **Toggle show/hide password** | Dùng state `openEye` kết hợp với `rest.type` để chuyển đổi `type='password'` ↔ `type='text'`. Đọc từ `rest.type` (type gốc) chứ không phải từ state để biết đây có phải password field không. |

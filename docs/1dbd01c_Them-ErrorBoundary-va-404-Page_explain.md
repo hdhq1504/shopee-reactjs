@@ -1,15 +1,15 @@
-# 9e3155c & 1dbd01c — feat: Thêm 404 Page + ErrorBoundary
+# 1dbd01c — feat: Thêm ErrorBoundary và 404 Page
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
-Hai commit liên tiếp xử lý **2 loại lỗi** mà mọi ứng dụng cần có:
+Hai commit liên tiếp xử lý **2 loại lỗi** mà mọi ứng dụng web cần có:
 
 | Commit | Tính năng | Xử lý lỗi gì |
 |--------|-----------|--------------|
 | `9e3155c` | Trang **404 Not Found** | URL không tồn tại |
 | `1dbd01c` | Component **ErrorBoundary** | JavaScript crash trong React component tree |
 
-**File thay đổi:**
+**Files thay đổi:**
 
 | File | Thay đổi |
 |------|----------|
@@ -22,18 +22,18 @@ Hai commit liên tiếp xử lý **2 loại lỗi** mà mọi ứng dụng cần
 
 ---
 
-## 📋 Commit 1 — Trang 404 Not Found (`9e3155c`)
+## Commit 1 — Trang 404 Not Found (`9e3155c`)
 
 ### Vấn đề trước đó
 
-Khi user truy cập URL không tồn tại (ví dụ `/abc`, `/xyz`), React Router không match được route nào → trang trắng hoặc crash.
+Khi user gõ URL không tồn tại (ví dụ `/abc`, `/xyz/123`), React Router duyệt qua toàn bộ danh sách route nhưng không khớp được bất kỳ route nào → trang trắng hoặc crash, không có thông báo gì cho user.
 
 ### Giải pháp: Route wildcard `path: '*'`
 
 ```typescript
 // src/useRouteElements.tsx
 {
-  path: '*',          // ← '*' = khớp MỌI URL không match route nào ở trên
+  path: '*',          // '*' = khớp MỌI URL không match route nào ở trên
   element: (
     <MainLayout>
       <NotFound />
@@ -42,16 +42,15 @@ Khi user truy cập URL không tồn tại (ví dụ `/abc`, `/xyz`), React Rout
 }
 ```
 
-**React Router xử lý route theo thứ tự ưu tiên:**
+React Router xử lý route theo **thứ tự ưu tiên từ trên xuống dưới**. Route `path: '*'` chỉ được kích hoạt khi **không có route nào phía trên** match. Vì vậy nó phải được đặt **cuối cùng** trong mảng routes:
 
 ```
-URL: /user/profile  → match /user → render Profile ✅
-URL: /cart          → match /cart → render Cart ✅
-URL: /abc123        → không match gì → fallback vào path: '*' → render NotFound ✅
-URL: /login         → match /login → render Login ✅ (không bao giờ xuống '*')
+URL: /user/profile → khớp /user/profile → render Profile ✅
+URL: /cart         → khớp /cart         → render Cart ✅
+URL: /abc123       → không khớp gì      → fallback vào path: '*' → render NotFound ✅
 ```
 
-> **Quan trọng:** `path: '*'` chỉ được kích hoạt khi **không có route nào ở trên** match. Nó phải đặt **cuối cùng** trong mảng routes để hoạt động đúng.
+Nếu đặt `path: '*'` lên đầu, nó sẽ bắt mọi URL và không có trang nào khác hiển thị được.
 
 ### UI Trang 404
 
@@ -71,7 +70,7 @@ export default function NotFound() {
           to='/'
           className='group relative inline-block text-sm font-medium text-white ...'
         >
-          {/* Hiệu ứng shadow lệch → về 0 khi hover */}
+          {/* Hiệu ứng shadow lệch → trở về vị trí ban đầu khi hover */}
           <span className='bg-orange absolute inset-0 translate-x-0.5 translate-y-0.5
                            transition-transform group-hover:translate-x-0 group-hover:translate-y-0' />
           <span className='relative block border border-current px-8 py-3'>
@@ -84,45 +83,49 @@ export default function NotFound() {
 }
 ```
 
-**Kỹ thuật CSS đáng chú ý — Hiệu ứng "shadow lệch":**
+### Kỹ thuật CSS — Hiệu ứng "shadow lệch"
+
+Nút "Go Home" có 2 lớp span chồng lên nhau:
 
 ```
-Trạng thái bình thường:        Khi hover:
-┌──────────────────┐          ┌──────────────────┐
-│                  │  ←cam→  │    Go Home       │
-│    Go Home       │          └──────────────────┘
-└──────────────────┘
-      ↘ (shadow cam lệch 0.5px)
+Trạng thái bình thường:     Khi hover:
+┌──────────────────┐        ┌──────────────────┐
+│    Go Home       │        │    Go Home       │
+└──────────────────┘        └──────────────────┘
+      ↘ shadow cam lệch 2px   (shadow gộp vào nút chính)
 ```
 
 ```tsx
-// 2 lớp span chồng lên nhau:
+// Lớp 1 (cam): tạo hiệu ứng shadow
 <span className='bg-orange absolute inset-0
-                  translate-x-0.5 translate-y-0.5       // Lớp cam: lệch ra 2px
+                  translate-x-0.5 translate-y-0.5       // Lệch ra 2px khi bình thường
                   transition-transform
-                  group-hover:translate-x-0             // Hover: về đúng vị trí
+                  group-hover:translate-x-0             // Về đúng vị trí khi hover
                   group-hover:translate-y-0' />
 
+// Lớp 2 (text): border trắng
 <span className='relative block border border-current px-8 py-3'>
-  Go Home                                               // Lớp text: border trắng
+  Go Home
 </span>
 ```
 
-**`group` / `group-hover`** — Kỹ thuật Tailwind: đặt `group` ở element cha, dùng `group-hover:` ở element con để thay đổi style khi cha được hover:
+**`group` / `group-hover:` — Tailwind pattern quan trọng:**
+
+Khi muốn style của element con thay đổi dựa trên hover của element cha, đặt class `group` ở cha và dùng `group-hover:` ở con:
 
 ```tsx
-<Link className='group ...'>          {/* ← cha có class 'group' */}
-  <span className='group-hover:translate-x-0' />  {/* ← con phản ứng khi cha hover */}
+<Link className='group ...'>           {/* Cha có class 'group' */}
+  <span className='group-hover:translate-x-0' />  {/* Con phản ứng khi cha hover */}
 </Link>
 ```
 
 ---
 
-## 📋 Commit 2 — ErrorBoundary (`1dbd01c`)
+## Commit 2 — ErrorBoundary (`1dbd01c`)
 
 ### Vấn đề ErrorBoundary giải quyết
 
-Trong React, nếu một component **throw error trong lúc render** → toàn bộ cây component bị unmount → màn hình trắng tinh, user không biết phải làm gì:
+Trong React, khi một component **throw error trong lúc render**, React sẽ unmount toàn bộ cây component từ điểm đó trở lên → màn hình trắng tinh, user không biết chuyện gì xảy ra:
 
 ```
 App
@@ -130,25 +133,21 @@ App
       └── MainLayout
            └── ProductList
                 └── ProductCard  ← throw Error("Cannot read property 'price' of undefined")
-                                    → Toàn bộ màn hình TRẮNG ❌
+                                    → Toàn bộ màn hình TRẮNG
 ```
 
-**ErrorBoundary** bắt lỗi này và hiển thị UI fallback thay thế (trang 500).
+**ErrorBoundary** bắt những lỗi này và hiển thị UI fallback (trang 500) thay vì crash trắng.
 
----
+### Tại sao bắt buộc phải dùng Class Component?
 
-### Tại Sao Phải Dùng Class Component?
-
-`ErrorBoundary` **bắt buộc** phải là **class component** vì nó dùng 2 lifecycle method chỉ có ở class:
+`ErrorBoundary` **bắt buộc** phải là **class component** vì nó cần 2 lifecycle method mà React chưa cung cấp hook tương đương:
 
 | Lifecycle | Khi nào chạy | Dùng để |
 |-----------|-------------|---------|
 | `static getDerivedStateFromError` | Ngay khi child throw error | Cập nhật state để trigger re-render với UI fallback |
-| `componentDidCatch` | Sau khi error được "bắt" | Log lỗi ra console / gửi lên error tracking service |
+| `componentDidCatch` | Sau khi error đã được bắt | Log lỗi ra console hoặc gửi lên error tracking service (Sentry, Datadog...) |
 
-> ⚠️ Tính đến hiện tại, React chưa cung cấp hook tương đương cho hai method này. Đây là lý do duy nhất dự án này dùng class component.
-
----
+Đây là lý do duy nhất project này dùng class component — tất cả nơi khác đều dùng functional component.
 
 ### Giải Thích Code ErrorBoundary
 
@@ -161,7 +160,7 @@ interface Props {
 }
 
 interface State {
-  hasError: boolean      // true = đang hiển thị UI lỗi
+  hasError: boolean      // true = đang hiển thị UI lỗi thay vì children
 }
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -170,17 +169,17 @@ export default class ErrorBoundary extends Component<Props, State> {
     hasError: false
   }
 
-  // 1. Chạy ngay khi có error trong cây con
-  //    → Static method, không có `this`, trả về state mới
+  // Bước 1: Chạy ngay khi có error trong cây con
+  // Static method → không có `this` → chỉ trả về state mới để trigger re-render
   public static getDerivedStateFromError(_: Error): State {
-    return { hasError: true }   // Trigger re-render với hasError = true
+    return { hasError: true }
   }
 
-  // 2. Chạy sau khi error đã được bắt
-  //    → Dùng để log lỗi (console, Sentry, DataDog, ...)
+  // Bước 2: Chạy sau khi error đã được bắt
+  // Instance method → có `this` → dùng để log hoặc gửi error lên monitoring service
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error: ', error, errorInfo)
-    // errorInfo.componentStack = stack trace của component gây lỗi
+    // errorInfo.componentStack = chuỗi cho thấy component nào gây ra lỗi
   }
 
   public render() {
@@ -198,17 +197,17 @@ export default class ErrorBoundary extends Component<Props, State> {
       )
     }
 
-    // Bình thường → render children như không có gì
+    // Bình thường → render children như không có gì xảy ra
     return this.props.children
   }
 }
 ```
 
-**Tại sao dùng `<a href='/'>` thay vì `<Link to='/'>`?**
+### Tại sao dùng `<a href='/'>` thay vì `<Link to='/'>` trong ErrorBoundary?
 
-Khi JavaScript crash, bản thân React Router context có thể đã bị hỏng. `<Link>` cần React Router context để hoạt động → có thể crash tiếp. `<a href='/'>` là HTML thuần → luôn hoạt động, thực hiện full page reload về trang chủ.
+Khi JavaScript crash đủ mạnh, bản thân React Router context có thể đã bị hỏng. `<Link>` phụ thuộc vào React Router context để work — nếu context bị hỏng thì `<Link>` cũng crash theo, ta vào vòng lặp crash vô tận.
 
----
+`<a href='/'>` là HTML thuần, không phụ thuộc vào React hay React Router. Trình duyệt xử lý nó trực tiếp, thực hiện full page reload về trang chủ — luôn hoạt động dù JavaScript có bị lỗi thế nào.
 
 ### Đăng Ký ErrorBoundary Ở Gốc App
 
@@ -219,7 +218,7 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
         <AppProvider>
-          <ErrorBoundary>      {/* ← Bọc ngoài toàn bộ <App /> */}
+          <ErrorBoundary>      {/* Bọc ngoài toàn bộ <App /> */}
             <App />
           </ErrorBoundary>
         </AppProvider>
@@ -230,39 +229,32 @@ createRoot(document.getElementById('root')!).render(
 )
 ```
 
-**Vị trí đặt `<ErrorBoundary>` rất quan trọng:**
+**Vị trí đặt `<ErrorBoundary>` quan trọng:**
 
-```
-StrictMode
- └── BrowserRouter
-      └── QueryClientProvider
-           └── AppProvider
-                └── ErrorBoundary  ← bọc ở đây
-                     └── App       ← bắt lỗi từ toàn bộ cây này
-```
+Đặt **bên trong** `<AppProvider>` → ErrorBoundary có thể dùng `AppContext` nếu UI fallback cần thông tin về user (tên, avatar...).
 
-- Đặt **trong** `<AppProvider>` → ErrorBoundary vẫn có thể dùng `AppContext` nếu cần
-- Đặt **bên ngoài** `<ReactQueryDevtools>` → Devtools không bị ảnh hưởng khi crash
+Đặt **bên ngoài** `<ReactQueryDevtools>` → Devtools không bị ảnh hưởng khi app crash, vẫn có thể debug.
 
 ---
 
-## 🔄 So Sánh 404 vs 500
+## So Sánh 404 vs 500
 
 | | 404 Not Found | 500 Internal Error |
 |---|---|---|
 | **Nguyên nhân** | URL không tồn tại | JavaScript crash trong component |
-| **Khi nào xảy ra** | User gõ URL sai | Runtime error (null reference, API trả data sai shape, ...) |
+| **Khi nào xảy ra** | User gõ URL sai | Runtime error (null reference, API trả data sai...) |
 | **Cách xử lý** | Route `path: '*'` trong React Router | `ErrorBoundary` class component |
 | **Navigation** | `<Link to='/'>` (React Router) | `<a href='/'>` (HTML thuần — vì router có thể bị hỏng) |
-| **Mã lỗi** | 404 | 500 |
+| **HTTP Code** | 404 | 500 |
 
 ---
 
-## 🔄 Luồng Hoạt Động
+## Luồng Hoạt Động
 
 ```
 Kịch bản 1 — URL không tồn tại:
-User gõ /abc
+
+User gõ /abc123
     ↓
 React Router duyệt qua tất cả routes
     ↓
@@ -275,6 +267,7 @@ User thấy trang 404, có nút "Go Home"
 ─────────────────────────────────────────
 
 Kịch bản 2 — JavaScript crash:
+
 Component throw Error trong lúc render
     ↓
 React "bubbles" error lên cây component
@@ -286,21 +279,21 @@ ErrorBoundary.componentDidCatch() chạy
     → console.error(...)
     ↓
 ErrorBoundary re-render với hasError = true
-    → hiển thị trang 500
+    → Hiển thị trang 500
     ↓
 User thấy trang 500, có nút "Go Home" (full reload)
 ```
 
 ---
 
-## 📌 Kiến Thức Mới Trong 2 Commit Này
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **`path: '*'`** | Wildcard route — khớp mọi URL không match route nào khác; phải đặt cuối cùng |
-| **ErrorBoundary** | Class component bắt lỗi JavaScript từ cây con — thay màn hình trắng bằng UI fallback |
-| **`getDerivedStateFromError`** | Static lifecycle — chạy khi child throw error, trả về state mới để trigger re-render fallback UI |
-| **`componentDidCatch`** | Lifecycle — chạy sau khi error được bắt, dùng để log lỗi |
-| **`<a>` vs `<Link>`** | Trong ErrorBoundary dùng `<a href>` vì React Router context có thể đã crash |
-| **`group` / `group-hover:`** | Tailwind pattern: style element con khi element cha được hover |
-| **Barrel export (`index.ts`)** | File trung gian `export { default } from './Component'` — cho phép import gọn: `import X from '~/components/X'` thay vì `import X from '~/components/X/X'` |
+| **`path: '*'`** | Wildcard route — khớp mọi URL không match route nào khác. Phải đặt cuối cùng trong mảng routes để không bắt nhầm các URL hợp lệ. |
+| **ErrorBoundary** | Class component bắt lỗi JavaScript từ cây con trong lúc render. Thay thế màn hình trắng khó hiểu bằng UI fallback thân thiện. |
+| **`getDerivedStateFromError`** | Static lifecycle method, chạy ngay khi child throw error. Trả về state mới để trigger re-render hiển thị fallback UI. Không có `this`. |
+| **`componentDidCatch`** | Instance lifecycle method, chạy sau khi error được bắt. Dùng để log hoặc gửi error lên monitoring service (Sentry, Datadog...). Có `this`. |
+| **`<a>` vs `<Link>`** | Trong ErrorBoundary dùng `<a href>` vì `<Link>` cần React Router context — context có thể đã crash. `<a>` là HTML thuần, luôn hoạt động. |
+| **`group` / `group-hover:`** | Tailwind pattern: đặt `group` ở element cha, dùng `group-hover:` ở element con để style con thay đổi khi cha được hover. |
+| **Barrel export (`index.ts`)** | File trung gian chỉ chứa `export { default } from './Component'`. Cho phép import gọn: `from '~/components/ErrorBoundary'` thay vì `from '~/components/ErrorBoundary/ErrorBoundary'`. |

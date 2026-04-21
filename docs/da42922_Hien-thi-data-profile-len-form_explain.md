@@ -1,79 +1,50 @@
 # da42922 — feat: Hiển thị data profile lên form
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
-Commit này biến trang `Profile` từ giao diện tĩnh thành **form có dữ liệu thật**.
+Commit này biến trang `Profile` từ giao diện tĩnh (chỉ có UI) thành **form có dữ liệu thật từ server**. Có 4 ý chính:
 
-Những việc chính của commit:
+1. Gọi API để lấy thông tin profile của user đang đăng nhập.
+2. Đổ dữ liệu từ API vào từng ô input trong form.
+3. Kết nối các ô input với `react-hook-form` (kiểm soát giá trị và validate).
+4. Tạo component `DateSelect` chuyên dùng để chọn ngày sinh.
 
-1. Gọi API để lấy thông tin profile.
-2. Đưa dữ liệu từ API vào form.
-3. Kết nối các ô input với `react-hook-form`.
-4. Tạo component `DateSelect` để chọn ngày sinh.
-5. Thêm validation cho dữ liệu profile.
-
-> 💡 Nói đơn giản: trước commit này form chỉ là khung giao diện. Sau commit này form đã hiện được dữ liệu thật của user.
+Lưu ý quan trọng: commit này chỉ tập trung vào **đọc và hiển thị** dữ liệu. Nút "Lưu" vẫn chỉ `console.log` — chưa gọi API update thật (phần đó sẽ làm ở commit `bd25411`).
 
 ---
 
-## 📁 Tổng Quan Các File Thay Đổi
+## Các File Thay Đổi
 
 | File | Loại thay đổi | Vai trò |
 |------|---------------|---------|
 | `src/pages/User/pages/Profile/Profile.tsx` | Sửa lớn | Gọi API, đổ dữ liệu lên form, kết nối validation |
-| `src/pages/User/components/DateSelect/DateSelect.tsx` | Tạo mới | Component chọn ngày sinh |
-| `src/pages/User/components/DateSelect/index.ts` | Tạo mới | Export lại `DateSelect` |
+| `src/pages/User/components/DateSelect/DateSelect.tsx` | Tạo mới | Component chọn ngày / tháng / năm sinh |
+| `src/pages/User/components/DateSelect/index.ts` | Tạo mới | Barrel export |
 | `src/utils/rules.ts` | Sửa | Thêm `userSchema` để validate form profile |
-| `src/pages/User/components/UserSideNav/UserSideNav.tsx` | Sửa nhỏ | Dùng `path.historyPurchase` |
+| `src/pages/User/components/UserSideNav/UserSideNav.tsx` | Sửa nhỏ | Dùng `path.historyPurchase` đã sửa chính tả |
 | `src/pages/ProductList/components/AsideFilter/AsideFilter.tsx` | Sửa nhỏ | Xóa import thừa |
 
 ---
 
-## 📁 1. `Profile.tsx` — Từ Form Tĩnh Thành Form Có Data
+## 1. Khai Báo Form Bằng `react-hook-form`
 
-### Trước commit này
+### Tạo schema validate chỉ cho form Profile
 
-Trang Profile chỉ mới có giao diện:
+Form Profile chỉ cần validate 5 field, không cần toàn bộ `userSchema`:
 
-- Email đang hard-code
-- Input chưa nối với form
-- Chưa gọi API
-- Chưa có dữ liệu thật từ backend
-
-### Sau commit này
-
-Trang Profile đã làm được các việc sau:
-
-1. Gọi API lấy profile
-2. Gắn input vào `react-hook-form`
-3. Đổ data từ API lên form
-4. Hiển thị lỗi validate nếu có
-
----
-
-## 📁 2. Khai Báo Form Bằng `react-hook-form`
-
-```ts
+```typescript
 type FormData = Pick<UserSchema, 'name' | 'address' | 'phone' | 'date_of_birth' | 'avatar'>
 
 const profileSchema = userSchema.pick(['name', 'address', 'phone', 'date_of_birth', 'avatar'])
 ```
 
-### Ý nghĩa
+**`Pick<UserSchema, 'name' | 'address' | ...>`** — TypeScript utility type, lấy ra đúng những field cần dùng từ schema lớn hơn. Tương tự, **`userSchema.pick([...])`** tạo Yup schema nhỏ hơn chỉ validate những field được chỉ định.
 
-Form Profile chỉ dùng 5 field:
+Lợi ích: tránh validate những field không có trong form (như `password`, `new_password`) gây lỗi không cần thiết.
 
-- `name`
-- `address`
-- `phone`
-- `date_of_birth`
-- `avatar`
+### Khởi tạo form với `useForm`
 
-Nên tác giả lấy đúng 5 field này từ `userSchema` để dùng cho form hiện tại.
-
-### Khởi tạo form:
-
-```ts
+```typescript
 const {
   register,
   control,
@@ -86,29 +57,29 @@ const {
     phone: '',
     address: '',
     avatar: '',
-    date_of_birth: new Date(1990, 0, 1)
+    date_of_birth: new Date(1990, 0, 1)  // Mặc định: 1/1/1990
   },
-  resolver: yupResolver(profileSchema)
+  resolver: yupResolver(profileSchema)    // Kết nối Yup với React Hook Form
 })
 ```
 
-### Giải thích từng phần
+Giải thích từng thứ lấy ra từ `useForm`:
 
-| Biến / cấu hình | Ý nghĩa |
-|-----------------|--------|
-| `register` | Dùng để nối input thường vào form |
-| `control` | Dùng cho các component custom qua `Controller` |
-| `errors` | Chứa lỗi validate |
-| `handleSubmit` | Bọc hàm submit |
-| `setValue` | Gán dữ liệu vào form sau khi API trả về |
-| `defaultValues` | Giá trị mặc định ban đầu |
-| `resolver` | Kết nối `yup` với `react-hook-form` |
+| Biến | Kiểu | Dùng để |
+|------|------|---------|
+| `register` | Function | Nối input HTML thông thường vào form |
+| `control` | Object | Nối component custom (không phải input thuần HTML) vào form |
+| `errors` | Object | Chứa thông báo lỗi của từng field |
+| `handleSubmit` | Function | Bọc hàm xử lý submit, tự validate trước khi gọi callback |
+| `setValue` | Function | **Gán giá trị vào form từ bên ngoài** — dùng khi API trả data về |
+
+`defaultValues` là giá trị ban đầu khi form chưa có dữ liệu từ API. `resolver: yupResolver(profileSchema)` kết nối Yup schema với React Hook Form để tự động validate khi submit.
 
 ---
 
-## 📁 3. Gọi API Lấy Profile
+## 2. Gọi API Lấy Profile
 
-```ts
+```typescript
 const { data: profileData } = useQuery({
   queryKey: ['profile'],
   queryFn: userApi.getProfile
@@ -117,80 +88,89 @@ const { data: profileData } = useQuery({
 const profile = profileData?.data.data
 ```
 
-### Luồng chạy
+**`useQuery`** từ TanStack Query tự động gọi hàm `userApi.getProfile()` và quản lý trạng thái (loading, success, error). Khi API trả về dữ liệu, component tự động re-render.
 
-```text
-Profile component render
-   ↓
-useQuery gọi userApi.getProfile()
-   ↓
-Backend trả về thông tin user
-   ↓
-profileData có dữ liệu
-   ↓
-component render lại
+**`profileData?.data.data`** — Cấu trúc response lồng nhiều tầng:
+- `profileData` — response object của Axios
+- `.data` — response body từ server (kiểu `SuccessResponse<User>`)
+- `.data` thứ 2 — field `data` trong `SuccessResponse`, chứa `User` object thật
+
 ```
-
-### Vì sao dùng `useQuery`?
-
-Vì dữ liệu profile đến từ server. `react-query` giúp việc gọi API gọn hơn và tự quản lý cache.
+Axios response:
+{
+  data: {               ← .data (HTTP response body)
+    message: "...",
+    data: {             ← .data.data (User object thật)
+      _id: "...",
+      name: "Nguyen Van A",
+      email: "..."
+    }
+  }
+}
+```
 
 ---
 
-## 📁 4. Đổ Dữ Liệu Từ API Vào Form
+## 3. Đổ Dữ Liệu Từ API Vào Form — `useEffect` + `setValue`
 
-```ts
+```typescript
 useEffect(() => {
   if (profile) {
     setValue('name', profile.name)
     setValue('phone', profile.phone)
     setValue('address', profile.address)
     setValue('avatar', profile.avatar)
-    setValue('date_of_birth', profile.date_of_birth ? new Date(profile.date_of_birth) : new Date(1990, 0, 1))
+    setValue(
+      'date_of_birth',
+      profile.date_of_birth ? new Date(profile.date_of_birth) : new Date(1990, 0, 1)
+    )
   }
 }, [profile, setValue])
 ```
 
-### Đây là đoạn rất quan trọng
+### Tại sao cần `useEffect` + `setValue` thay vì dùng `defaultValues`?
 
-Khi component chạy lần đầu, API chưa có dữ liệu nên form chỉ có `defaultValues`.
+**`defaultValues`** chỉ được đọc **một lần** khi `useForm` khởi tạo, tức là khi component mount lần đầu. Lúc đó API chưa trả về data nên `profile` còn là `undefined`.
 
-Sau khi API trả về `profile`, `useEffect` chạy và dùng `setValue(...)` để gán từng giá trị vào form.
+Sau đó API trả data → `profile` có giá trị → component re-render. Nhưng `defaultValues` không được đọc lại nữa — form vẫn hiện giá trị rỗng.
 
-### Minh họa:
+**`setValue`** là hàm cho phép gán giá trị vào form **bất kỳ lúc nào sau khi mount**. Kết hợp với `useEffect` (chạy mỗi khi `profile` thay đổi), ta có thể đổ dữ liệu vào form ngay khi API trả về.
 
-```text
-Lần render đầu:
-name = ''
-phone = ''
-address = ''
+Sơ đồ thời gian:
 
-API trả dữ liệu:
-name = 'Nguyen Van A'
-phone = '0987...'
-address = 'HCM'
-
-useEffect chạy:
-setValue('name', ...)
-setValue('phone', ...)
-setValue('address', ...)
+```
+Component mount
+    ↓
+defaultValues = { name: '', phone: '', ... }  → Form hiển thị rỗng
+    ↓
+API gọi xong → profileData có giá trị → profile = { name: 'Nguyen Van A', ... }
+    ↓
+useEffect phát hiện profile thay đổi → chạy callback
+    ↓
+setValue('name', 'Nguyen Van A')
+setValue('phone', '0987...')
+...
+    ↓
+Form hiển thị dữ liệu thật
 ```
 
-Nhờ vậy user sẽ thấy dữ liệu thật hiện lên trong form.
+### Tại sao đổi `date_of_birth` sang `Date` object?
+
+```typescript
+profile.date_of_birth ? new Date(profile.date_of_birth) : new Date(1990, 0, 1)
+```
+
+API trả `date_of_birth` dưới dạng chuỗi: `"1999-10-22T00:00:00.000Z"`. Component `DateSelect` cần `Date` object để có thể gọi `.getDate()`, `.getMonth()`, `.getFullYear()`. Nên phải convert ngay khi đổ vào form.
+
+Nếu `date_of_birth` là `undefined` (user chưa nhập), dùng giá trị mặc định `new Date(1990, 0, 1)` (1/1/1990).
 
 ---
 
-## 📁 5. Kết Nối Các Ô Input Với Form
+## 4. Kết Nối Các Ô Input Với Form
 
-### 5.1. Hiển thị email
+### Input thường — dùng `register`
 
-```tsx
-<div className='pt-3 text-gray-700'>{profile?.email}</div>
-```
-
-Email chỉ hiển thị ra text, không cho sửa.
-
-### 5.2. `name`
+`register` là cách đơn giản nhất để nối input HTML vào form:
 
 ```tsx
 <Input
@@ -201,22 +181,13 @@ Email chỉ hiển thị ra text, không cho sửa.
 />
 ```
 
-Input này được nối với form bằng `register`.
+`register('name')` trả về một số props (`name`, `onChange`, `onBlur`, `ref`) và gán chúng vào input. React Hook Form dùng những props này để theo dõi giá trị và trạng thái của input.
 
-### 5.3. `address`
+Component `Input` tự xử lý việc lan truyền `register` props — nên ở đây chỉ cần truyền `register` và `name`.
 
-```tsx
-<Input
-  register={register}
-  name='address'
-  placeholder='Địa chỉ'
-  errorMessage={errors.address?.message}
-/>
-```
+### Input custom — dùng `Controller`
 
-Cách làm giống với `name`.
-
-### 5.4. `phone` dùng `Controller`
+Một số component không phải HTML input thông thường (như `InputNumber`, `DateSelect`) không nhận `register`. Phải dùng `Controller` để "bọc" chúng:
 
 ```tsx
 <Controller
@@ -232,87 +203,82 @@ Cách làm giống với `name`.
 />
 ```
 
-Vì `InputNumber` là component custom, nên không dùng `register` trực tiếp như input thường. Do đó phải dùng `Controller`.
+`Controller` hoạt động như người trung gian:
+- Nhận `control` từ `useForm` để kết nối với form
+- Render component con thông qua prop `render`
+- Cung cấp `field` object chứa `value`, `onChange`, `onBlur`, `ref` cho component con
 
-### Hiểu đơn giản:
+**Tóm tắt khi nào dùng gì:**
 
-```text
-Input thường      → dùng register
-Input custom      → hay dùng Controller
+```
+Input HTML thông thường (<input>, <select>, <textarea>)
+    → Dùng register()
+
+Component custom (InputNumber, DateSelect, ...)
+    → Dùng Controller
 ```
 
 ---
 
-## 📁 6. `DateSelect.tsx` — Tạo Component Chọn Ngày Sinh
+## 5. Component `DateSelect` — Chọn Ngày Sinh
 
-Commit này tạo mới file:
+### Tại sao cần component riêng?
 
-```text
-src/pages/User/components/DateSelect/DateSelect.tsx
-```
+HTML không có input chuẩn cho chọn ngày/tháng/năm riêng biệt. Yêu cầu UI là 3 dropdown (ngày, tháng, năm) riêng rẽ → cần tự xây component.
 
-Component này thay cho phần 3 ô select ngày / tháng / năm viết cứng trước đó.
+### Props của `DateSelect`:
 
-### Props của component:
-
-```ts
+```typescript
 interface Props {
-  onChange: (value: Date) => void
-  value?: Date
-  errorMessage?: string
+  onChange: (value: Date) => void  // Callback báo ngược Date mới lên form
+  value?: Date                     // Giá trị hiện tại từ form
+  errorMessage?: string            // Thông báo lỗi validate
 }
 ```
 
-### Ý nghĩa:
+### State nội bộ:
 
-| Props | Vai trò |
-|-------|--------|
-| `value` | Giá trị ngày hiện tại |
-| `onChange` | Báo ngược dữ liệu về form khi user thay đổi |
-| `errorMessage` | Hiển thị lỗi validate |
-
-### State bên trong component:
-
-```ts
+```typescript
 const [date, setDate] = useState({
-  date: value?.getDate() || 1,
-  month: value?.getMonth() || 0,
-  year: value?.getFullYear() || 1990
+  date: value?.getDate() || 1,           // Ngày (1-31)
+  month: value?.getMonth() || 0,         // Tháng (0-11, JavaScript đếm từ 0)
+  year: value?.getFullYear() || 1990     // Năm
 })
 ```
 
-Component lưu tạm:
+Component lưu 3 giá trị riêng rẽ vì mỗi dropdown chỉ thay đổi một phần. Khi user đổi một trong ba, component ghép lại thành `Date` object rồi gọi `onChange`.
 
-- ngày
-- tháng
-- năm
+### Hàm `handleChange` — Computed Property Name:
 
-Khi user đổi một giá trị, component sẽ ghép lại thành một object `Date`.
-
-### Hàm `handleChange`
-
-```ts
-const newDate = {
-  ...date,
-  [name]: value
+```typescript
+const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+  const { value: valueFromSelect, name } = event.target
+  const newDate = {
+    ...date,          // Giữ lại 2 field không đổi
+    [name]: Number(valueFromSelect)  // Ghi đè field đang thay đổi
+  }
+  setDate(newDate)
+  onChange(new Date(newDate.year, newDate.month, newDate.date))
 }
-setDate(newDate)
-onChange(new Date(newDate.year, newDate.month, newDate.date))
 ```
 
-### Luồng hoạt động
+**`[name]`** là **Computed Property Name** — dùng giá trị của biến `name` làm key trong object. Khi user đổi dropdown "Tháng":
 
-```text
-User đổi ngày hoặc tháng hoặc năm
-   ↓
-DateSelect cập nhật state bên trong
-   ↓
-DateSelect tạo ra Date mới
-   ↓
-Gửi Date mới lên form qua onChange
+```
+name = 'month'   (từ attribute name của <select name='month'>)
+valueFromSelect = '7'  (giá trị user chọn)
+
+newDate = {
+  date: 15,         ← giữ nguyên
+  [name]: 7,        ← tương đương: month: 7
+  year: 2001        ← giữ nguyên
+}
+→ new Date(2001, 7, 15) = 15/08/2001
 ```
 
-### Trong `Profile.tsx`, `DateSelect` được dùng như sau:
+Không cần `if/else` cho từng trường hợp — Computed Property Name giúp code gọn và tổng quát.
+
+### Dùng `DateSelect` trong `Profile.tsx`:
 
 ```tsx
 <Controller
@@ -321,18 +287,22 @@ Gửi Date mới lên form qua onChange
   render={({ field }) => (
     <DateSelect
       errorMessage={errors.date_of_birth?.message}
-      value={field.value}
-      onChange={field.onChange}
+      value={field.value}     // form → DateSelect
+      onChange={field.onChange} // DateSelect → form (cập nhật khi user thay đổi)
     />
   )}
 />
 ```
 
+Luồng dữ liệu hai chiều:
+- Form truyền `value` xuống `DateSelect` → 3 dropdown hiển thị đúng ngày/tháng/năm
+- `DateSelect` gọi `onChange` lên form → form lưu Date object mới
+
 ---
 
-## 📁 7. `src/utils/rules.ts` — Thêm Validation Cho User
+## 6. `src/utils/rules.ts` — Thêm `userSchema`
 
-```ts
+```typescript
 export const userSchema = yup.object({
   name: yup.string().max(160, 'Độ dài tối đa là 160 ký tự'),
   phone: yup.string().max(20, 'Độ dài tối đa là 20 ký tự'),
@@ -343,73 +313,51 @@ export const userSchema = yup.object({
   confirmPassword: schema.fields['password'],
   newPassword: schema.fields['confirm_password']
 })
+
+export type UserSchema = yup.InferType<typeof userSchema>
 ```
 
-### File này thêm gì?
+`userSchema` là **schema lớn** cho toàn bộ dữ liệu user. Mỗi form (Profile, ChangePassword) sẽ lấy ra tập hợp con phù hợp bằng `.pick()`.
 
-Commit này tạo `userSchema` để validate dữ liệu liên quan đến user.
+**`yup.InferType<typeof userSchema>`** — TypeScript tự suy ra type từ Yup schema. Thay vì khai báo thủ công:
 
-Riêng form Profile hiện tại chỉ lấy một phần:
+```typescript
+// Không cần làm thế này:
+interface UserSchema {
+  name?: string
+  phone?: string
+  // ...
+}
 
-```ts
-const profileSchema = userSchema.pick(['name', 'address', 'phone', 'date_of_birth', 'avatar'])
+// TypeScript tự suy ra từ Yup schema:
+export type UserSchema = yup.InferType<typeof userSchema>
+// → { name?: string, phone?: string, date_of_birth?: Date, ... }
 ```
-
-### Nghĩa là:
-
-`userSchema` là schema lớn, còn `profileSchema` là schema nhỏ dành riêng cho form Profile.
-
-### Ví dụ validate:
-
-- `name` dài tối đa 160 ký tự
-- `phone` dài tối đa 20 ký tự
-- `date_of_birth` phải là ngày trong quá khứ
 
 ---
 
-## 📁 8. Những Sửa Đổi Nhỏ Khác
+## Luồng Hoạt Động Sau Commit
 
-### `UserSideNav.tsx`
-
-```tsx
-- <Link to={path.hitoryPurchase} ...>
-+ <Link to={path.historyPurchase} ...>
 ```
-
-Đồng bộ với commit trước khi tên route được sửa lại.
-
-### `AsideFilter.tsx`
-
-```tsx
-- import InputV2 from '~/components/InputV2'
-```
-
-Xóa import thừa vì không còn sử dụng.
-
----
-
-## 🔗 Luồng Hoạt Động Sau Commit
-
-```text
-1. User mở trang /user/profile
-2. useQuery gọi API lấy profile
-3. API trả dữ liệu user
-4. useEffect dùng setValue để gán dữ liệu vào form
+1. User mở /user/profile
+2. useQuery gọi userApi.getProfile()
+3. API trả về dữ liệu user
+4. useEffect phát hiện profile thay đổi → setValue() đổ data vào form
 5. Input, InputNumber, DateSelect hiển thị dữ liệu thật
-6. User có thể sửa dữ liệu và bấm nút Lưu
+6. User thay đổi dữ liệu, bấm [Lưu]
+7. (Hiện tại chỉ console.log — chưa gọi API update)
 ```
-
-> ⚠️ Ở commit này, nút `Lưu` mới chỉ `console.log(data)` chứ chưa gọi API update thật. Nghĩa là commit này tập trung vào phần **hiển thị data lên form**.
 
 ---
 
-## 📌 Kiến Thức Mới
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **`useQuery`** | Hook của React Query dùng để gọi API lấy dữ liệu |
-| **`useForm`** | Hook của React Hook Form dùng để quản lý form |
-| **`setValue`** | Hàm dùng để gán dữ liệu vào field của form |
-| **`Controller`** | Dùng để kết nối các component custom với `react-hook-form` |
-| **`yupResolver`** | Giúp `react-hook-form` dùng được validation của `yup` |
-| **Schema `.pick()`** | Lấy ra một phần field từ schema lớn |
+| **`useQuery`** | Hook của TanStack Query để gọi API đọc dữ liệu. Tự động chạy khi component mount, quản lý trạng thái loading/success/error, và cache kết quả. |
+| **`setValue`** | Hàm của React Hook Form để gán giá trị vào form sau khi component đã mount. Dùng khi data đến từ API hoặc nguồn bên ngoài form. |
+| **`defaultValues` vs `setValue`** | `defaultValues` chỉ chạy khi khởi tạo form. `setValue` có thể gán giá trị bất kỳ lúc nào — thường trong `useEffect` khi API trả về dữ liệu. |
+| **`register` vs `Controller`** | `register` dùng cho HTML input thông thường. `Controller` dùng cho component custom không nhận `register` props trực tiếp. |
+| **`yupResolver`** | Adapter kết nối Yup validation schema với React Hook Form. Khi submit, RHF chạy Yup schema, nếu fail thì bổ sung lỗi vào `formState.errors`. |
+| **`schema.pick([])`** | Tạo schema Yup mới chỉ chứa các field được chỉ định. Tránh tạo lại validation rules từ đầu. |
+| **Computed Property Name `[name]`** | Dùng giá trị của biến `name` làm key trong object literal: `{ [name]: value }`. Giúp code tổng quát, tránh lặp nhiều `if/else`. |

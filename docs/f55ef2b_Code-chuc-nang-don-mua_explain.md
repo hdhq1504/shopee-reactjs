@@ -1,208 +1,235 @@
-# f55ef2b — feat: Code chức năng đơn mua
+# f55ef2b — feat: Code chức năng Đơn mua (Lịch sử mua hàng)
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
-Commit này hoàn thiện trang **Lịch sử đơn mua** (`/user/purchase`). File thay đổi chính:
+Commit này hoàn thiện trang **HistoryPurchase** (Đơn mua), đây là trang hiển thị danh sách tất cả đơn hàng của user lọc theo trạng thái.
 
-| File | Thay đổi |
-|------|----------|
-| `src/pages/User/pages/HistoryPurchase/HistoryPurchase.tsx` | Viết hoàn toàn UI + logic lọc đơn hàng theo trạng thái |
-
-Chức năng bao gồm:
-- **Tab lọc theo trạng thái** — Tất cả / Chờ xác nhận / Chờ lấy hàng / Đang giao / Đã giao / Đã hủy
-- **Đọc trạng thái từ URL** — Tab active được xác định qua query string `?status=1`
-- **Gọi API lấy danh sách đơn hàng** theo trạng thái đang chọn
-- **Hiển thị từng đơn hàng** — ảnh, tên, số lượng, giá, tổng tiền
+Có 3 điểm quan trọng:
+1. **Lọc theo trạng thái** — dùng query params trên URL để lọc đơn hàng (Tất cả, Chờ xác nhận, Đang giao...)
+2. **Tab navigation** — khi bấm tab, URL thay đổi → data tự load lại
+3. **Tính tổng tiền bằng `useMemo`** — performance tốt hơn so với tính trong render
 
 ---
 
-## 📋 Nội Dung Trang
+## Các File Thay Đổi
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Tất cả │ Chờ xác nhận │ Chờ lấy hàng │ Đang giao │ ...    │  ← Tabs (NavLink)
-├──────────────────────────────────────────────────────────────┤
-│  [Ảnh]  Tên sản phẩm                          Giá gốc ~~~  │
-│         x2                                     ₫120.000     │
-│                                    Tổng giá tiền  ₫240.000  │
-├──────────────────────────────────────────────────────────────┤
-│  [Ảnh]  Tên sản phẩm 2 ...                                  │
-└──────────────────────────────────────────────────────────────┘
-```
+| File | Loại thay đổi | Vai trò |
+|------|---------------|---------|
+| `src/pages/User/pages/HistoryPurchase/HistoryPurchase.tsx` | Sửa lớn | Thêm API call, tab filter, hiển thị danh sách |
+| `src/types/purchase.type.ts` | Sửa nhỏ | Thêm `purchasesStatus` constant |
 
 ---
 
-## 📁 Thay Đổi Chi Tiết
-
-### Bước 1: Khai báo dữ liệu tab tĩnh
+## 1. `purchase.type.ts` — Thêm `purchasesStatus` Constant
 
 ```typescript
-const purchaseTabs = [
-  { status: purchasesStatus.all, name: 'Tất cả' },             // status = 0
-  { status: purchasesStatus.waitForConfirmation, name: 'Chờ xác nhận' },  // status = 1
-  { status: purchasesStatus.waitForGetting, name: 'Chờ lấy hàng' },      // status = 2
-  { status: purchasesStatus.inProgress, name: 'Đang giao' },              // status = 3
-  { status: purchasesStatus.delivered, name: 'Đã giao' },                 // status = 4
-  { status: purchasesStatus.cancelled, name: 'Đã hủy' }                   // status = 5
-]
-```
-
-**Tại sao khai báo ngoài component?**
-
-Mảng này không thay đổi theo thời gian. Nếu đặt trong component → mỗi lần render React sẽ tạo lại mảng mới trong bộ nhớ mà không cần thiết. Đặt ngoài → tạo một lần, dùng mãi.
-
-```typescript
-// purchasesStatus trong constants/purchase.ts
 export const purchasesStatus = {
-  inCart: -1,
-  all: 0,
-  waitForConfirmation: 1,
-  waitForGetting: 2,
-  inProgress: 3,
-  delivered: 4,
-  cancelled: 5
+  inCart: -1,           // Đang trong giỏ hàng (chưa đặt)
+  all: 0,               // Tất cả đơn hàng
+  waitForConfirmation: 1, // Chờ xác nhận từ người bán
+  waitForGetting: 2,    // Người bán đã xác nhận, chờ lấy hàng
+  inProgress: 3,        // Đang giao hàng
+  delivered: 4,         // Đã giao hàng thành công
+  cancelled: 5          // Đã huỷ
 } as const
-// `as const` → TypeScript hiểu đây là literal type (0, 1, 2, ...) không phải number chung
 ```
+
+**`as const`** — TypeScript biến literal type thành **readonly** và **narrow** nhất có thể:
+
+```typescript
+// Không có as const:
+purchasesStatus.inCart  // TypeScript thấy: type là 'number'
+
+// Với as const:
+purchasesStatus.inCart  // TypeScript thấy: type là literal '-1' (không phải number chung)
+
+// Lợi ích: Nếu hàm cần tham số kiểu PurchaseStatus:
+type PurchaseStatusType = typeof purchasesStatus[keyof typeof purchasesStatus]
+// → -1 | 0 | 1 | 2 | 3 | 4 | 5
+// TypeScript sẽ báo lỗi nếu truyền vào status không hợp lệ (ví dụ: 99)
+```
+
+Đặt constant này trong file `purchase.type.ts` vì nó gắn chặt với khái niệm `Purchase` — mọi code liên quan đến purchase status đều import từ một chỗ.
 
 ---
 
-### Bước 2: Đọc trạng thái từ URL
+## 2. `HistoryPurchase.tsx` — Chi Tiết Logic
+
+### Đọc status từ URL với `useQueryParams`
 
 ```typescript
-const queryParams: { status?: string } = useQueryParams()
-const status: number = Number(queryParams.status) || purchasesStatus.all
+const { status = purchasesStatus.all } = useQueryParams()
 ```
 
-**`useQueryParams`** là custom hook đơn giản:
+**`useQueryParams()`** đọc query params từ URL và trả về object. Ví dụ:
 
-```typescript
-// src/hooks/useQueryParams.tsx
-import { useSearchParams } from 'react-router-dom'
+```
+URL: /user/purchase?status=1
+→ useQueryParams() = { status: '1' }
+→ destructure: status = '1'
 
-export default function useQueryParams() {
-  const [searchParams] = useSearchParams()
-  return Object.fromEntries([...searchParams])
-  // Với URL: /user/purchase?status=2
-  // → trả về: { status: '2' }  ← luôn là string!
-}
+URL: /user/purchase (không có query)
+→ useQueryParams() = {}
+→ destructure: status = 0 (dùng default value purchasesStatus.all)
 ```
 
-**Tại sao phải `Number(queryParams.status)`?**
+**Tại sao lọc bằng URL thay vì state?**
 
-URL query string luôn là dạng `string`. API và `purchasesStatus` cần `number`. Phải ép kiểu:
+| Cách | Ưu điểm | Nhược điểm |
+|------|---------|-----------|
+| `useState` | Đơn giản | Reload trang mất trạng thái, không thể share URL |
+| **URL query params** (đang dùng) | Reload vẫn giữ trạng thái, có thể share link, back/forward hoạt động | Cần parse từ string |
 
-```typescript
-// queryParams.status = '2' (string từ URL)
-Number('2')       // → 2 (number) ✅
-Number(undefined) // → NaN → falsy → dùng fallback
+User copy URL `/user/purchase?status=3` gửi cho bạn → bạn mở cũng đang xem tab "Đang giao".
 
-const status: number = Number(queryParams.status) || purchasesStatus.all
-//                     ↑ Nếu NaN (URL không có status) → dùng 0 (Tất cả)
-```
-
----
-
-### Bước 3: Gọi API lấy danh sách đơn hàng
+### Gọi API với `useQuery`
 
 ```typescript
-const { data: purchasesInCartData } = useQuery({
+const { data: purchasesInPurchaseData } = useQuery({
   queryKey: ['purchases', { status }],
-  queryFn: () => purchaseApi.getPurchases({ status: status as PurchaseListStatus })
+  queryFn: () => purchaseApi.getPurchases({ status: Number(status) as PurchaseListStatus }),
+  enabled: Boolean(isAuthenticated)
 })
 
-const purchasesInCart = purchasesInCartData?.data.data
+const purchasesInPurchase = purchasesInPurchaseData?.data.data
 ```
 
-**`queryKey: ['purchases', { status }]`** — React Query cache kết quả theo key này:
+**`queryKey: ['purchases', { status }]`** — Khi `status` thay đổi (user bấm tab khác), React Query tự động gọi lại API vì key thay đổi. Data cũ được cache riêng cho mỗi `status`.
 
-```
-queryKey = ['purchases', { status: 0 }] → cache riêng cho tab "Tất cả"
-queryKey = ['purchases', { status: 1 }] → cache riêng cho tab "Chờ xác nhận"
-queryKey = ['purchases', { status: 2 }] → cache riêng cho tab "Chờ lấy hàng"
-...
-```
+**`Number(status)`** — Các query params từ URL luôn là string (`'1'`, `'2'`...). API cần number → parse trước khi gửi.
 
-Khi user chuyển tab → `status` thay đổi → `queryKey` thay đổi → React Query tự động gọi API mới. Nếu quay lại tab cũ → lấy từ cache (không gọi lại API).
+**`as PurchaseListStatus`** — TypeScript assertion vì `Number(status)` có thể là bất kỳ số nào, nhưng ta biết URL chỉ chứa các giá trị hợp lệ (từ đường link tab).
 
-**`status as PurchaseListStatus`** — ép kiểu để TypeScript không báo lỗi:
+### Hàm tính tổng tiền với `useMemo`
 
 ```typescript
-// PurchaseListStatus = -1 | 0 | 1 | 2 | 3 | 4 | 5
-// status ở đây là number thông thường → cần ép kiểu để pass vào API
+const totalCheckedPurchasePrice = useMemo(
+  () =>
+    purchasesInPurchase?.reduce((result, current) => {
+      return result + current.price * current.buy_count
+    }, 0),
+  [purchasesInPurchase]
+)
 ```
+
+**`reduce`** duyệt qua mảng và cộng dồn:
+
+```
+purchasesInPurchase = [
+  { price: 100000, buy_count: 2 },   → +200000
+  { price: 50000,  buy_count: 1 },   → +50000
+]
+
+result qua các vòng lặp:
+  vòng 1: result = 0       + 100000*2  = 200000
+  vòng 2: result = 200000  + 50000*1   = 250000
+
+Kết quả = 250000
+```
+
+**Tại sao dùng `useMemo`?**
+
+```typescript
+// Không có useMemo → tính lại mỗi khi render
+const totalPrice = purchasesInPurchase?.reduce(...)
+
+// Có useMemo → tính lại CHỈ KHI purchasesInPurchase thay đổi
+const totalPrice = useMemo(() => purchasesInPurchase?.reduce(...), [purchasesInPurchase])
+```
+
+Khi component re-render vì lý do khác (ví dụ parent re-render, context thay đổi), `reduce` không cần chạy lại nếu `purchasesInPurchase` không đổi. Với danh sách dài, đây là tối ưu đáng kể.
 
 ---
 
-### Bước 4: Render tab lọc — dùng `Link` + `createSearchParams`
+## 3. UI: Tab Navigation Theo Status
 
-```typescript
-const purchaseTabsLink = purchaseTabs.map((tab) => (
+```tsx
+const purchaseTabs = [
+  { status: purchasesStatus.all, name: 'Tất cả' },
+  { status: purchasesStatus.waitForConfirmation, name: 'Chờ xác nhận' },
+  { status: purchasesStatus.waitForGetting, name: 'Chờ lấy hàng' },
+  { status: purchasesStatus.inProgress, name: 'Đang giao' },
+  { status: purchasesStatus.delivered, name: 'Đã giao' },
+  { status: purchasesStatus.cancelled, name: 'Đã huỷ' }
+]
+
+{purchaseTabs.map((tab) => (
   <Link
     key={tab.status}
     to={{
-      pathname: path.historyPurchase,       // /user/purchase
-      search: createSearchParams({
-        status: String(tab.status)          // ?status=1, ?status=2, ...
-      }).toString()
+      pathname: path.historyPurchase,
+      search: createSearchParams({ status: String(tab.status) }).toString()
     }}
     className={classNames('flex flex-1 items-center justify-center border-b-2 bg-white py-4 text-center', {
-      'border-b-orange text-orange': status === tab.status,    // Tab đang active
-      'border-b-black/10 text-gray-900': status !== tab.status // Tab không active
+      'border-b-orange text-orange': Number(status) === tab.status,   // Tab active
+      'border-b-black/10 text-gray-900': Number(status) !== tab.status  // Tab không active
     })}
   >
     {tab.name}
   </Link>
-))
+))}
 ```
 
-**`createSearchParams`** — hàm của React Router để tạo chuỗi query string:
+### Cơ chế hoạt động của Tab:
+
+**Bấm tab "Chờ xác nhận":**
+
+```
+Link to={{ pathname: '/user/purchase', search: '?status=1' }}
+    ↓
+URL đổi thành /user/purchase?status=1
+    ↓
+HistoryPurchase re-render
+    ↓
+useQueryParams() = { status: '1' }
+    ↓
+queryKey = ['purchases', { status: '1' }] (thay đổi!)
+    ↓
+React Query gọi lại API: GET /purchases?status=1
+    ↓
+Danh sách cập nhật với đơn "Chờ xác nhận"
+```
+
+### Tại sao dùng `<Link>` thay vì `<button onClick>`?
+
+Với `<Link>`:
+- URL thay đổi → history stack được ghi → user bấm **Back** để về tab trước
+- User **copy URL** `/user/purchase?status=3` chia sẻ → người nhận mở đúng tab "Đang giao"
+- Bộ máy tìm kiếm có thể index từng tab theo URL riêng
+
+Với `<button onClick` + `setState`:
+- URL không đổi → Back không hoạt động đúng
+- URL /user/purchase luôn giống nhau dù đang ở tab nào
+
+### Active tab styling với `classNames`:
 
 ```typescript
-createSearchParams({ status: '1' }).toString()
-// → 'status=1'
-
-// Dùng trong to={{ search: ... }} thay vì tự ghép chuỗi thủ công:
-// ❌ Thủ công:  `/user/purchase?status=${tab.status}`  — dễ lỗi với ký tự đặc biệt
-// ✅ Đúng cách: createSearchParams({ status: String(tab.status) }).toString()
+{
+  'border-b-orange text-orange': Number(status) === tab.status,   // Cam = đang active
+  'border-b-black/10 text-gray-900': Number(status) !== tab.status  // Xám = không active
+}
 ```
 
-**`classNames` (thư viện `classnames`)** — kết hợp class có điều kiện:
-
-```typescript
-classNames(
-  'class-luôn-có flex flex-1 ...',   // Class luôn áp dụng
-  {
-    'border-b-orange text-orange': status === tab.status,   // Thêm nếu điều kiện true
-    'border-b-black/10 text-gray-900': status !== tab.status
-  }
-)
-// Kết quả: 'flex flex-1 ... border-b-orange text-orange'  (nếu tab active)
-//      hoặc: 'flex flex-1 ... border-b-black/10 text-gray-900' (nếu không active)
-```
-
-**Tại sao dùng `Link` thay vì `button` + `onClick`?**
-
-| `Link` | `button + onClick + navigate` |
-|--------|-------------------------------|
-| URL thay đổi → có thể bookmark/share/back button hoạt động | URL không thay đổi |
-| Browser prefetch | Không có |
-| Đơn giản hơn — không cần handler | Cần viết hàm xử lý |
+`Number(status)` vì `status` từ URL là string (`'1'`), còn `tab.status` là number (`1`).
 
 ---
 
-### Bước 5: Render danh sách đơn hàng
+## 4. UI: Hiển Thị Danh Sách Đơn Hàng
 
 ```tsx
-{purchasesInCart?.map((purchase) => (
-  <div key={purchase._id} className='mt-4 rounded-sm ... shadow-sm'>
-
-    {/* Link đến trang chi tiết sản phẩm */}
-    <Link to={`${path.home}${generateNameId({ name: purchase.product.name, id: purchase.product._id })}`}>
-      
+{purchasesInPurchase?.map((purchase) => (
+  <div key={purchase._id} className='mt-4 rounded-sm border-black/10 bg-white p-6 text-gray-800 shadow-sm'>
+    <Link
+      to={`${path.home}${generateNameId({ name: purchase.product.name, id: purchase.product._id })}`}
+      className='flex'
+    >
       {/* Ảnh sản phẩm */}
       <div className='shrink-0'>
-        <img className='h-20 w-20 object-cover' src={purchase.product.image} alt={purchase.product.name} />
+        <img
+          className='h-20 w-20 object-cover'
+          src={purchase.product.image}
+          alt={purchase.product.name}
+        />
       </div>
 
       {/* Tên + số lượng */}
@@ -211,95 +238,70 @@ classNames(
         <div className='mt-3'>x{purchase.buy_count}</div>
       </div>
 
-      {/* Giá gốc gạch ngang + giá hiện tại */}
+      {/* Giá */}
       <div className='ml-3 shrink-0'>
-        <span className='text-gray-500 line-through'>
-          ₫{formatCurrency(purchase.product.price_before_discount)}
+        <span className='truncate text-gray-500 line-through'>
+          đ{formatCurrency(purchase.price_before_discount)}
         </span>
-        <span className='text-orange ml-2'>
-          ₫{formatCurrency(purchase.product.price)}
+        <span className='ml-2 truncate text-orange'>
+          đ{formatCurrency(purchase.price)}
         </span>
       </div>
     </Link>
 
-    {/* Tổng tiền */}
+    {/* Tổng đơn */}
     <div className='flex justify-end'>
-      <span>Tổng giá tiền</span>
-      <span className='text-orange ml-4 text-xl'>
-        ₫{formatCurrency(purchase.product.price * purchase.buy_count)}
-      </span>
+      <div className='text-gray-500'>Thành tiền:</div>
+      <div className='ml-4 text-xl text-orange'>
+        đ{formatCurrency(purchase.price * purchase.buy_count)}
+      </div>
     </div>
   </div>
 ))}
 ```
 
-**`purchasesInCart?.map`** — Dấu `?.` (optional chaining):
+**`truncate`** — class Tailwind tương đương `overflow: hidden; white-space: nowrap; text-overflow: ellipsis`. Tên sản phẩm dài sẽ bị cắt với dấu `...` thay vì xuống dòng hoặc tràn ra ngoài.
 
-```typescript
-purchasesInCart?.map(...)
-// Tương đương:
-purchasesInCart !== undefined && purchasesInCart !== null
-  ? purchasesInCart.map(...)
-  : undefined
+**`flex-shrink-0`** — ngăn element bị thu nhỏ trong flex container. Ảnh và giá không được phép co lại dù container nhỏ.
 
-// Khi data chưa load (undefined) → không crash, chỉ render nothing
+**`flex-grow`** — phần tên sản phẩm chiếm hết không gian còn lại. Ảnh và giá cố định, tên co giãn theo.
+
+---
+
+## Luồng Hoạt Động Sau Commit
+
 ```
+1. User vào /user/purchase
+   → status = 0 (default: tất cả)
+   → Tab "Tất cả" được active (cam)
+   → API: GET /purchases?status=0
 
-**`generateNameId`** — Tạo slug URL cho sản phẩm:
+2. User bấm tab "Đang giao"
+   → URL: /user/purchase?status=3
+   → Tab "Đang giao" active (cam)
+   → queryKey đổi → API: GET /purchases?status=3
+   → Hiển thị đơn hàng đang giao
 
-```typescript
-generateNameId({ name: 'Áo thun nam', id: 'abc123' })
-// → 'ao-thun-nam-i.abc123'
-// URL đẹp, có thể đọc được, không bị lỗi ký tự đặc biệt
-```
+3. User reload trang
+   → URL: /user/purchase?status=3 (vẫn còn)
+   → Tab "Đang giao" vẫn active
+   → API vẫn lọc đúng status ✅
 
-**`formatCurrency`** — Format số thành tiền tệ:
-
-```typescript
-formatCurrency(120000) // → '120.000'
-// Thêm ký hiệu ₫ ở JSX: ₫{formatCurrency(price)}
+4. Dưới danh sách, tổng tiền được tính bằng useMemo
+   → Không tính lại mỗi render, chỉ khi data thay đổi
 ```
 
 ---
 
-## 🔄 Luồng Chạy Của Trang Đơn Mua
-
-```
-User vào /user/purchase
-         ↓
-useQueryParams() → đọc ?status từ URL
-         ↓
-status = Number(queryParams.status) || 0  (mặc định: Tất cả)
-         ↓
-useQuery(['purchases', { status }])  → gọi API getPurchases({ status })
-         ↓
-Render tab: tab có status === status hiện tại → active (cam)
-         ↓
-Render danh sách đơn hàng từ API
-         ↓
-         User click tab khác (ví dụ: "Chờ xác nhận")
-         ↓
-Link to={{ search: 'status=1' }} → URL đổi thành /user/purchase?status=1
-         ↓
-Component re-render → useQueryParams() trả về { status: '1' }
-         ↓
-status = 1 → queryKey thay đổi → React Query gọi API mới
-         ↓
-Tab "Chờ xác nhận" active, danh sách đơn hàng mới hiển thị
-```
-
----
-
-## 📌 Kiến Thức Mới Trong Commit Này
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **`useQueryParams()`** | Custom hook bọc `useSearchParams()` — trả về object chứa tất cả query params từ URL dưới dạng `{ key: string }` |
-| **`Number(str) \|\| fallback`** | Convert string từ URL sang number; nếu `NaN` (undefined/không hợp lệ) → dùng giá trị mặc định |
-| **`queryKey` phụ thuộc state** | Khi key thay đổi → React Query tự gọi API mới + cache riêng cho từng key |
-| **`createSearchParams({ })`** | React Router helper tạo query string an toàn — thay thế cho việc ghép chuỗi thủ công |
-| **`classNames(base, { conditional })`** | Kết hợp class tĩnh + class có điều kiện — phổ biến cho active states, loading states |
-| **`Link` thay vì button** | Thay đổi filter/tab bằng URL query param thay vì state — URL có thể bookmark, chia sẻ, back/forward |
-| **`as const`** | TypeScript: giữ nguyên literal type (`0 \| 1 \| 2 \| ...`) thay vì mở rộng thành `number` |
-| **`?.` (Optional Chaining)**  | Truy cập property/gọi method an toàn khi giá trị có thể là `null`/`undefined` — không cần if check |
-| **Khai báo data tĩnh ngoài component** | Tránh tạo lại object/array không cần thiết mỗi lần re-render |
+| **Filter bằng URL query params** | Lưu filter state vào URL thay vì useState. URL có thể share, reload vẫn giữ filter, back/forward hoạt động đúng. Pattern chuẩn cho server-side filtering. |
+| **`as const`** | TypeScript operator đóng băng object thành readonly literal type. Giúp TypeScript biết giá trị cụ thể thay vì type chung chung (`-1` thay vì `number`). |
+| **`queryKey` với dependencies** | Thay đổi `queryKey` trigger React Query gọi lại API. Đây là cách "subscribe" data theo parameter — mỗi combination key/params được cache độc lập. |
+| **`Array.reduce()`** | Hàm functional duyệt mảng và cộng dồn một giá trị. Thường dùng để tính tổng, tối thiểu, tối đa, hoặc chuyển đổi mảng sang một giá trị khác. |
+| **`useMemo` cho derived values** | Tính toán từ data (như tổng tiền) nên dùng `useMemo` thay vì tính lại mỗi render. Dependencies array xác định khi nào cần tính lại. |
+| **`<Link>` cho tab** | Dùng Link (thay vì button + state) cho tab → URL thay đổi → history stack cập nhật → back/forward và share link hoạt động đúng. |
+| **`createSearchParams`** | `URLSearchParams` wrapper của React Router tạo query string từ object: `{ status: '1' }` → `?status=1`. |
+| **`Number(status)` type coercion** | Query params từ URL luôn là string. Khi so sánh với number constant (`purchasesStatus.all = 0`), cần parse bằng `Number()` để tránh `'0' === 0` là `false`. |

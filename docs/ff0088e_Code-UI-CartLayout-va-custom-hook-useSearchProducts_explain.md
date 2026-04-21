@@ -1,19 +1,19 @@
 # ff0088e — feat: Code UI CartLayout và custom hook useSearchProducts
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
 Commit này thực hiện **3 việc chính**:
 
-1. **Tách component (Refactoring):** Chia nhỏ `Header.tsx` (vốn rất to) thành nhiều component con có thể tái sử dụng.
-2. **Tạo `CartLayout` + `CartHeader`:** Layout riêng cho trang Giỏ hàng — khác giao diện so với trang chủ (không có icon giỏ hàng, có chữ "Giỏ hàng" bên cạnh logo).
-3. **Custom hook `useSearchProducts`:** Gom logic tìm kiếm sản phẩm ra hook riêng để **Header** và **CartHeader** đều dùng được mà không phải copy-paste code.
+1. **Refactor Header** — Tách `Header.tsx` lớn thành nhiều component con có thể tái sử dụng.
+2. **Tạo `CartLayout` + `CartHeader`** — Layout riêng cho trang Giỏ hàng, giao diện khác với trang chủ.
+3. **Custom hook `useSearchProducts`** — Gom logic tìm kiếm ra hook riêng để cả `Header` và `CartHeader` đều dùng được mà không copy-paste code.
 
 ### Sơ đồ tổng thể trước và sau refactor:
 
 ```
 TRƯỚC:
 ┌─────────────────────────────────────────────┐
-│ Header.tsx (file rất to, ~260 dòng)          │
+│ Header.tsx (~260 dòng)                       │
 │ ├── Logic đăng nhập/đăng xuất               │
 │ ├── Logic tìm kiếm sản phẩm                │
 │ ├── UI ngôn ngữ, tài khoản                  │
@@ -22,36 +22,34 @@ TRƯỚC:
 └─────────────────────────────────────────────┘
 
 SAU:
-┌─────────────────────────────────────────────┐
-│ NavHeader.tsx                                │ ← MỚI: Phần trên cùng (ngôn ngữ, tài khoản, đăng xuất)
-│ useSearchProducts.tsx                        │ ← MỚI: Hook chứa logic form tìm kiếm
-│                                             │
-│ Header.tsx (dùng cho trang chủ/SP)           │ ← Thu gọn, import NavHeader + useSearchProducts
-│ ├── <NavHeader />                            │
-│ ├── useSearchProducts()                      │
-│ └── UI giỏ hàng popover                     │
-│                                             │
-│ CartHeader.tsx (dùng cho trang giỏ hàng)     │ ← MỚI: Header riêng cho Cart
-│ ├── <NavHeader />                            │
-│ └── useSearchProducts()                      │
-│                                             │
-│ CartLayout.tsx                               │ ← MỚI: Layout cho trang Cart
-│ ├── <CartHeader />                           │
-│ └── <Footer />                              │
-└─────────────────────────────────────────────┘
+├── NavHeader.tsx          ← Phần trên cùng (ngôn ngữ, tài khoản, đăng xuất)
+├── useSearchProducts.tsx  ← Hook chứa logic form tìm kiếm
+│
+├── Header.tsx             ← Thu gọn, import NavHeader + useSearchProducts
+│   ├── <NavHeader />
+│   ├── useSearchProducts()
+│   └── UI giỏ hàng popover
+│
+├── CartHeader.tsx         ← Header riêng cho Cart
+│   ├── <NavHeader />
+│   └── useSearchProducts()
+│
+└── CartLayout.tsx         ← Layout cho trang Cart
+    ├── <CartHeader />
+    └── <Footer />
 ```
 
 ---
 
-## 📁 1. `src/components/NavHeader/NavHeader.tsx` — Component Được Tách Ra
+## 1. `src/components/NavHeader/NavHeader.tsx` — Component Được Tách Ra
 
 ### Mục đích:
-Chứa **phần trên cùng** của Header — phần mà cả `Header` lẫn `CartHeader` đều cần hiển thị:
-- Nút chọn ngôn ngữ (Tiếng Việt / English)
+
+Chứa **phần trên cùng** của Header — phần mà cả `Header` lẫn `CartHeader` đều cần:
+- Nút chọn ngôn ngữ
 - Avatar + Email user (nếu đã đăng nhập)
 - Nút Đăng ký / Đăng nhập (nếu chưa đăng nhập)
 
-### Code:
 ```tsx
 export default function NavHeader() {
   const { isAuthenticated, setIsAuthenticated, setProfile, profile } = useContext(AppContext)
@@ -61,6 +59,7 @@ export default function NavHeader() {
     onSuccess: () => {
       setIsAuthenticated(false)
       setProfile(null)
+      // Xóa cache giỏ hàng khỏi React Query khi đăng xuất
       queryClient.removeQueries({ queryKey: ['purchases', { status: purchasesStatus.inCart }] })
     }
   })
@@ -79,18 +78,35 @@ export default function NavHeader() {
 }
 ```
 
-### Giải thích:
-- **Trước đây** logic logout và UI navbar nằm cứng trong `Header.tsx`. Khi tạo `CartHeader`, ta sẽ phải copy nguyên đoạn code này — vi phạm **DRY (Don't Repeat Yourself)**.
-- **Giờ** tách ra thành `NavHeader` → cả `Header` lẫn `CartHeader` chỉ cần gọi `<NavHeader />` là xong.
+### Tại sao cần tách ra?
+
+**Nguyên tắc DRY (Don't Repeat Yourself):** Nếu `CartHeader` cũng cần phần navbar này, ta sẽ phải copy nguyên đoạn code vào. Khi cần sửa (thêm ngôn ngữ, thay đổi UI đăng xuất), phải sửa ở 2 nơi — dễ bỏ sót.
+
+Tách ra thành `NavHeader` → cả `Header` và `CartHeader` chỉ cần gọi `<NavHeader />` — sửa ở một chỗ, tất cả nơi dùng đều được cập nhật.
 
 ---
 
-## 📁 2. `src/hooks/useSearchProducts.tsx` — Custom Hook Tìm Kiếm
+## 2. `src/hooks/useSearchProducts.tsx` — Custom Hook Tìm Kiếm
 
 ### Vấn đề:
-Logic tìm kiếm sản phẩm (setup form, validate, navigate URL) **trước đây nằm trong `Header.tsx`**. Nhưng `CartHeader` cũng cần thanh tìm kiếm giống hệt → phải **gom logic** ra chỗ riêng.
+
+`Header.tsx` có logic tìm kiếm sản phẩm (setup form, validate, navigate URL). `CartHeader` cũng cần thanh tìm kiếm giống hệt. Nhưng UI của 2 thanh tìm kiếm khác nhau hoàn toàn:
+
+- `Header`: Thanh tìm kiếm nền trắng, nằm trong grid 12 cột, có background orange phía sau
+- `CartHeader`: Thanh tìm kiếm viền cam, nằm bên phải logo, compact hơn
+
+**UI khác nhau nhưng logic giống nhau** → Custom Hook là giải pháp đúng.
+
+### Custom Hook vs Component — Khi nào dùng cái nào?
+
+| | Custom Hook | Component |
+|---|---|---|
+| **Chứa** | Chỉ logic | Logic + UI |
+| **Trả về** | State, functions | JSX element |
+| **Tái sử dụng khi** | UI khác nhau, logic giống nhau | Cả UI lẫn logic giống nhau |
 
 ### Code:
+
 ```tsx
 type FormData = Pick<Schema, 'name'>
 const nameSchema = schema.pick(['name'])
@@ -107,12 +123,14 @@ export default function useSearchProducts() {
   const navigate = useNavigate()
 
   const onSubmitSearch = handleSubmit((data) => {
+    // Nếu đang sort (có order), bỏ order khi tìm kiếm — UX tốt hơn
     const config = queryConfig.order
       ? omit({ ...queryConfig, name: data.name }, ['order', 'sort_by'])
       : { ...queryConfig, name: data.name }
+
     navigate({
       pathname: path.home,
-      search: createSearchParams(config).toString()
+      search: createSearchParams(config).toString()   // ?name=áo+thun&page=1&...
     })
   })
 
@@ -120,55 +138,49 @@ export default function useSearchProducts() {
 }
 ```
 
-### Giải thích:
-- **Đây là đoạn code ĐÃ CÓ** từ `Header.tsx` ở commit trước. Không có logic mới — chỉ **di chuyển** ra custom hook.
-- Hook trả về 2 thứ:
-  - `register` — để gắn vào `<input>` (đăng ký input với react-hook-form)
-  - `onSubmitSearch` — để gắn vào `<form onSubmit={...}>` (xử lý khi submit)
-- Bất kỳ component nào cần thanh tìm kiếm, chỉ cần:
-  ```tsx
-  const { onSubmitSearch, register } = useSearchProducts()
-  ```
+Hook này trả về 2 thứ:
+- **`register`** — gắn vào `<input>` để React Hook Form theo dõi giá trị
+- **`onSubmitSearch`** — gắn vào `<form onSubmit={...}>` để xử lý khi submit
 
-### Tại sao dùng Custom Hook mà không dùng Component?
-- **Component** = UI + Logic → Dùng khi cần tái sử dụng cả giao diện.
-- **Custom Hook** = Chỉ Logic → Dùng khi **giao diện khác nhau** nhưng **logic giống nhau**.
+Bất kỳ component nào cần thanh tìm kiếm:
 
-Ở đây, Header có thanh search **nền trắng, nằm trong grid 12 cột**, còn CartHeader có thanh search **viền cam, nằm bên phải logo**. UI khác nhau hoàn toàn, nhưng logic (validate + navigate) giống hệt → Custom Hook là lựa chọn đúng. 
+```tsx
+const { onSubmitSearch, register } = useSearchProducts()
+// → Xong. Không cần biết logic bên trong là gì.
+```
 
 ---
 
-## 📁 3. `src/components/CartHeader/CartHeader.tsx` — Header Riêng Cho Trang Cart
+## 3. `src/components/CartHeader/CartHeader.tsx` — Header Riêng Cho Trang Cart
 
-### Giao diện:
+### Giao diện so sánh:
+
 ```
+Trang chủ (Header):
 ┌──────────────────────────────────────────────────────────┐
-│               Tiếng Việt ▼  |  avatar user@email.com ▼  │  ← NavHeader
+│           Tiếng Việt ▼  |  avatar user@email.com ▼      │ ← NavHeader
 ├──────────────────────────────────────────────────────────┤
-│  🛒 Shopee | Giỏ hàng          [🔍 Free Ship Đơn Từ 0Đ] │  ← CartHeader riêng
+│  Logo Shopee    [🔍 Free Ship Đơn Từ 0Đ]           🛒 5 │ ← Header (có icon giỏ hàng)
+└──────────────────────────────────────────────────────────┘
+
+Trang giỏ hàng (CartHeader):
+┌──────────────────────────────────────────────────────────┐
+│           Tiếng Việt ▼  |  avatar user@email.com ▼      │ ← NavHeader (giống hệt)
+├──────────────────────────────────────────────────────────┤
+│  Logo Shopee | Giỏ hàng      [🔍 Free Ship Đơn Từ 0Đ]  │ ← CartHeader (khác UI)
 └──────────────────────────────────────────────────────────┘
 ```
 
-So sánh với Header trang chủ:
-```
-┌──────────────────────────────────────────────────────────┐
-│               Tiếng Việt ▼  |  avatar user@email.com ▼  │  ← NavHeader
-├──────────────────────────────────────────────────────────┤
-│  🛒 Shopee     [🔍 Free Ship Đơn Từ 0Đ]            🛒 5 │  ← Header chính (có icon giỏ)
-└──────────────────────────────────────────────────────────┘
-```
-
-### Code:
 ```tsx
 export default function CartHeader() {
-  const { onSubmitSearch, register } = useSearchProducts()   // ← Tái sử dụng hook
+  const { onSubmitSearch, register } = useSearchProducts()   // Tái sử dụng hook
 
   return (
     <div className='border-b border-b-black/10'>
-      {/* Phần trên: NavHeader (ngôn ngữ, tài khoản) */}
+      {/* Phần trên: NavHeader (tái sử dụng component) */}
       <div className='bg-orange text-white'>
         <div className='container'>
-          <NavHeader />                                       {/* ← Tái sử dụng component */}
+          <NavHeader />
         </div>
       </div>
 
@@ -180,11 +192,11 @@ export default function CartHeader() {
               <div>
                 <svg viewBox='0 0 192 65' ...>Logo Shopee</svg>
               </div>
-              <div className='bg-orange mx-4 h-8 w-px' />   {/* Đường kẻ dọc */}
+              <div className='bg-orange mx-4 h-8 w-px' />   {/* Đường kẻ dọc cam */}
               <div className='text-orange capitalize lg:text-xl'>Giỏ hàng</div>
             </Link>
 
-            {/* Form tìm kiếm — CÙNG LOGIC, KHÁC UI */}
+            {/* Form tìm kiếm — CÙNG LOGIC (từ hook), KHÁC UI */}
             <form className='mt-3 md:mt-0 md:w-[50%]' onSubmit={onSubmitSearch}>
               <div className='border-orange flex rounded-sm border-2'>
                 <input
@@ -203,20 +215,20 @@ export default function CartHeader() {
 }
 ```
 
-### CartHeader ≠ Header:
+### So sánh các điểm khác nhau:
 
 | Đặc điểm | Header (Trang chủ) | CartHeader (Trang giỏ) |
 |-----------|-------------------|----------------------|
-| **Nền** | Gradient cam-đỏ | Trắng (phần dưới) |
-| **Logo** | Chỉ logo Shopee | Logo + `|` + "Giỏ hàng" |
-| **Thanh search** | Nền trắng, trong grid | Viền cam, bên phải logo |
-| **Icon giỏ hàng** | ✅ Có (góc phải, có badge số lượng) | ❌ Không có |
-| **NavHeader** | ✅ Dùng chung | ✅ Dùng chung |
-| **useSearchProducts** | ✅ Dùng chung | ✅ Dùng chung |
+| Nền phần dưới | Gradient cam-đỏ | Trắng |
+| Logo | Logo Shopee | Logo + `|` + "Giỏ hàng" |
+| Thanh search | Nền trắng, trong grid | Viền cam, bên phải logo |
+| Icon giỏ hàng | Có (badge số lượng) | Không |
+| NavHeader | Dùng chung | Dùng chung |
+| useSearchProducts | Dùng chung | Dùng chung |
 
 ---
 
-## 📁 4. `src/layouts/CartLayout/CartLayout.tsx` — Layout Mới
+## 4. `src/layouts/CartLayout/CartLayout.tsx` — Layout Mới
 
 ```tsx
 import CartHeader from '~/components/CartHeader'
@@ -226,46 +238,40 @@ interface Props {
   children?: React.ReactNode
 }
 
-export default function MainLayout({ children }: Props) {
+export default function CartLayout({ children }: Props) {
   return (
     <div>
-      <CartHeader />      {/* ← Dùng CartHeader thay vì Header */}
-      {children}           {/* ← Nội dung trang (Cart) */}
-      <Footer />           {/* ← Footer giống hệt */}
+      <CartHeader />    {/* Header đặc biệt cho trang Cart */}
+      {children}        {/* Nội dung trang (Cart component) */}
+      <Footer />        {/* Footer giống các trang khác */}
     </div>
   )
 }
 ```
 
-### So sánh 3 loại Layout:
+### 3 loại Layout trong app:
 
-| Layout | Header | Dùng cho |
-|--------|--------|----------|
-| `MainLayout` | `<Header />` (đầy đủ, có giỏ hàng) | Trang chủ, Chi tiết SP, Profile |
-| `CartLayout` | `<CartHeader />` (đơn giản, có chữ "Giỏ hàng") | Trang Giỏ hàng |
+| Layout | Dùng Header | Dùng cho |
+|--------|------------|----------|
+| `MainLayout` | `<Header />` (đầy đủ, có giỏ hàng) | Trang chủ, Chi tiết SP, Profile... |
+| `CartLayout` | `<CartHeader />` (đơn giản, "Giỏ hàng") | Trang Giỏ hàng |
 | `RegisterLayout` | `<RegisterHeader />` (chỉ logo) | Trang Đăng nhập/Đăng ký |
+
+Mỗi layout phục vụ một nhóm trang có context và UX khác nhau.
 
 ---
 
-## 📁 5. `src/useRouteElements.tsx` — Thêm Route Cho Cart
+## 5. `src/useRouteElements.tsx` — Thêm Route Cho Cart
 
 ```tsx
 {
   path: '',
-  element: <ProtectedRoute />,
+  element: <ProtectedRoute />,   // Yêu cầu đăng nhập
   children: [
     {
-      path: path.profile,
+      path: path.cart,
       element: (
-        <MainLayout>
-          <Profile />
-        </MainLayout>
-      )
-    },
-    {
-      path: path.cart,              // ← MỚI
-      element: (
-        <CartLayout>               // ← Dùng CartLayout thay vì MainLayout
+        <CartLayout>       {/* CartLayout thay vì MainLayout */}
           <Cart />
         </CartLayout>
       )
@@ -274,77 +280,83 @@ export default function MainLayout({ children }: Props) {
 }
 ```
 
-- Trang Cart nằm trong `ProtectedRoute` → **phải đăng nhập** mới truy cập được.
-- Dùng `CartLayout` → Header khác biệt visually so với trang chủ.
+Trang Cart nằm trong `ProtectedRoute` → phải đăng nhập mới truy cập. Dùng `CartLayout` → Header khác biệt về mặt thị giác.
 
 ---
 
-## 📁 6. `src/components/Header/Header.tsx` — Thu Gọn Sau Refactor
+## 6. `Header.tsx` — Thu Gọn Sau Refactor
 
-### Thay đổi chính:
+### Trước — mọi thứ nằm trong Header:
 
 ```tsx
-// TRƯỚC — logic logout, search, navbar đều nằm trong Header:
 export default function Header() {
   const { isAuthenticated, setIsAuthenticated, setProfile, profile } = useContext(AppContext)
   const logoutMutation = useMutation({ ... })        // ~15 dòng
   const { register, handleSubmit } = useForm({ ... }) // ~10 dòng
   const onSubmitSearch = handleSubmit((data) => { ... })  // ~10 dòng
-  // ... còn rất nhiều code khác
+  // ... còn rất nhiều code khác (query giỏ hàng, UI navbar...)
+```
 
-// SAU — gọn gàng:
+### Sau — gọn gàng hơn:
+
+```tsx
 export default function Header() {
   const { isAuthenticated } = useContext(AppContext)
-  const { onSubmitSearch, register } = useSearchProducts()  // 1 dòng
-  // ...
+  const { onSubmitSearch, register } = useSearchProducts()   // 1 dòng thay ~30 dòng
+
   return (
     <div>
-      <NavHeader />    {/* 1 dòng thay cho ~80 dòng UI cũ */}
-      {/* ... phần còn lại */}
+      <NavHeader />    {/* 1 component thay ~80 dòng UI */}
+      {/* ... phần giỏ hàng, form tìm kiếm... */}
     </div>
   )
 }
 ```
 
 ### Thêm `enabled: isAuthenticated` cho query giỏ hàng:
+
 ```tsx
 const { data: purchasesInCartData } = useQuery({
   queryKey: ['purchases', { status: purchasesStatus.inCart }],
   queryFn: () => purchaseApi.getPurchases({ status: purchasesStatus.inCart }),
-  enabled: isAuthenticated    // ← MỚI THÊM
+  enabled: isAuthenticated    // Chỉ gọi API khi đã đăng nhập
 })
 ```
 
-**Tại sao?** API `getPurchases` cần token xác thực. Nếu user **chưa đăng nhập** mà vẫn gọi → server trả lỗi 401. `enabled: isAuthenticated` đảm bảo chỉ gọi API khi đã đăng nhập.
+**Tại sao cần `enabled: isAuthenticated`?**
+
+API `getPurchases` cần access token trong header `Authorization`. Nếu user chưa đăng nhập, không có token → server trả 401 Unauthorized → interceptor xử lý lỗi không cần thiết.
+
+`enabled: false` ngăn React Query gọi API — không tốn request, không bị lỗi 401 giả.
 
 ---
 
-## 🔗 Tóm Tắt Luồng Hoạt Động
+## Tóm Tắt Luồng Hoạt Động
 
 ```
-User truy cập trang chủ → useRouteElements render <MainLayout>
+User vào trang chủ → useRouteElements render <MainLayout>
     → <Header>
         → <NavHeader /> (ngôn ngữ, tài khoản)
         → useSearchProducts() (logic tìm kiếm)
         → UI giỏ hàng popover
 
-User click "Xem giỏ hàng" → navigate đến /cart → useRouteElements render <CartLayout>
+User click "Xem giỏ hàng" → navigate đến /cart → render <CartLayout>
     → <CartHeader>
-        → <NavHeader /> (CÙNG component trên)
+        → <NavHeader />      (CÙNG component trên)
         → useSearchProducts() (CÙNG logic trên)
-        → UI khác: Logo | Giỏ hàng + Ô search viền cam
-    → <Cart /> (nội dung giỏ hàng)
+        → UI khác: Logo | Giỏ hàng + Search viền cam
+    → <Cart /> (nội dung)
     → <Footer />
 ```
 
 ---
 
-## 📌 Kiến Thức Mới
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **Component Extraction** | Tách 1 component lớn thành nhiều component nhỏ — mỗi cái có 1 nhiệm vụ rõ ràng |
-| **Custom Hook vs Component** | Hook = tái sử dụng **logic** (UI khác nhau). Component = tái sử dụng **logic + UI** (UI giống nhau) |
-| **Multiple Layouts** | Mỗi nhóm trang có thể dùng Layout khác nhau — `MainLayout`, `CartLayout`, `RegisterLayout` |
-| **`enabled` trong useQuery** | Chặn API chạy khi chưa đủ điều kiện (ví dụ: chưa đăng nhập → không gọi API cần auth) |
-| **DRY (Don't Repeat Yourself)** | Nguyên tắc: nếu code giống nhau xuất hiện ở 2+ nơi → gom vào 1 chỗ (hook, component, util) |
+| **Component Extraction** | Tách một component lớn thành nhiều component nhỏ, mỗi cái có một nhiệm vụ rõ ràng. Giúp code dễ đọc, dễ test, và tái sử dụng được. |
+| **Custom Hook vs Component** | Custom Hook = tái sử dụng **logic** (khi UI khác nhau). Component = tái sử dụng **logic + UI** (khi UI giống nhau). Chọn đúng loại tránh copy-paste code. |
+| **Multiple Layouts** | Mỗi nhóm trang có thể dùng Layout khác nhau. Khai báo Layout trong route config thay vì hardcode trong từng page component. |
+| **`enabled` trong `useQuery`** | Chặn API chạy khi chưa đủ điều kiện. `enabled: false` = không gọi API. Thường dùng với auth (chưa đăng nhập) hoặc khi phụ thuộc vào data chưa có. |
+| **DRY (Don't Repeat Yourself)** | Nguyên tắc: mỗi đoạn code có ý nghĩa nên chỉ xuất hiện ở **một chỗ duy nhất**. Khi cần thay đổi, chỉ sửa một nơi — giảm nguy cơ bỏ sót. |

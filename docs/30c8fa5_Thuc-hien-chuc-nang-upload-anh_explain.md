@@ -1,32 +1,30 @@
 # 30c8fa5 — feat: Thực hiện chức năng upload ảnh
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
 Commit này hoàn thiện chức năng **upload ảnh đại diện** cho trang Profile. Có 4 ý chính:
 
-1. Cho user chọn ảnh từ máy tính — sử dụng kỹ thuật **hidden input + ref.click()**.
-2. Validate ảnh ngay ở phía frontend — kiểm tra định dạng & dung lượng trước khi upload.
-3. Upload ảnh lên server rồi lưu tên ảnh vào profile — pattern **2-bước upload**.
+1. Cho user chọn ảnh từ máy tính — kỹ thuật **hidden input + ref click** để thay thế UI xấu của browser.
+2. Validate ảnh ngay ở frontend — kiểm tra định dạng và dung lượng trước khi upload.
+3. Upload ảnh lên server rồi lưu tên ảnh vào profile — pattern **2 bước**.
 4. Chuẩn hóa cách hiển thị avatar ở mọi nơi bằng hàm `getAvatarUrl`.
-
-> 💡 Nếu commit `bd25411` đã làm được "cập nhật text profile", thì commit này đi tiếp "cập nhật luôn ảnh đại diện".
 
 ---
 
-## 📁 Tổng Quan Các File Thay Đổi
+## Các File Thay Đổi
 
 | File | Loại thay đổi | Vai trò |
 |------|---------------|---------|
 | `src/pages/User/pages/Profile/Profile.tsx` | Sửa lớn | Thêm chọn ảnh, preview ảnh, upload ảnh, xử lý lỗi |
 | `src/utils/utils.ts` | Sửa | Thêm hàm `getAvatarUrl` để tạo URL avatar đúng |
-| `src/constants/config.ts` | Tạo mới | Chứa `baseUrl` dùng chung cho app |
+| `src/constants/config.ts` | Tạo mới | Chứa `baseUrl` dùng chung cho toàn app |
 | `src/utils/http.ts` | Sửa | Dùng `config.baseUrl` thay vì hard-code URL |
 | `src/components/NavHeader/NavHeader.tsx` | Sửa | Dùng `getAvatarUrl(profile?.avatar)` |
 | `src/pages/User/components/UserSideNav/UserSideNav.tsx` | Sửa | Dùng `getAvatarUrl(profile?.avatar)` |
 
 ---
 
-## 📁 1. `Profile.tsx` — Kỹ Thuật Chọn Ảnh Bằng Hidden Input
+## 1. `Profile.tsx` — Kỹ Thuật Chọn Ảnh Bằng Hidden Input
 
 ### Thêm 2 hooks mới:
 
@@ -37,17 +35,22 @@ const [file, setFile] = useState<File>()
 
 | Biến | Vai trò |
 |------|---------|
-| `fileInputRef` | Trỏ tới ô input file đang **bị ẩn** (`className='hidden'`) |
-| `file` | Lưu File object mà user vừa chọn từ máy tính |
+| `fileInputRef` | Trỏ tới ô input file (đang bị ẩn đi bằng `className='hidden'`) |
+| `file` | Lưu File object mà user vừa chọn — dùng để preview và upload |
 
 ### Tại sao input file bị ẩn?
 
-Input file mặc định của browser rất xấu: `[ Choose File ] No file chosen`. Shopee (và hầu hết web hiện đại) muốn nút bấm custom đẹp hơn.
+Input file mặc định của browser trông rất xấu và không thể tùy chỉnh CSS thoải mái:
 
-**Cách hoạt động:**
+```
+Mặc định: [ Choose File ] No file chosen
+Shopee muốn: Một nút tròn đẹp với icon camera
+```
+
+Giải pháp phổ biến — **Hidden Input + Custom Button**:
 
 ```tsx
-{/* Input ẩn — user không thấy */}
+{/* Input ẩn — user không thấy, trình duyệt vẫn dùng để mở hộp thoại */}
 <input className='hidden' type='file' accept='.jpg,.jpeg,.png' ref={fileInputRef} onChange={onFileChange} />
 
 {/* Nút đẹp — user thấy và bấm */}
@@ -56,34 +59,33 @@ Input file mặc định của browser rất xấu: `[ Choose File ] No file cho
 
 ```typescript
 const handleUpload = () => {
-  fileInputRef.current?.click()    // ← Bấm nút → code tự click vào input ẩn
+  fileInputRef.current?.click()   // Code "giả vờ" click vào input ẩn
 }
 ```
 
-**Luồng:**
-
+Luồng hoạt động:
 ```
 User bấm nút "Chọn ảnh" (nút đẹp)
-   ↓
-handleUpload() → fileInputRef.current.click()
-   ↓
-Browser "tưởng" user click input file → mở hộp thoại chọn file
-   ↓
+    ↓
+handleUpload() chạy → fileInputRef.current.click()
+    ↓
+Browser "nghĩ" user đã click vào input file → mở hộp thoại chọn file
+    ↓
 User chọn file → onChange trigger → onFileChange chạy
 ```
 
-> 💡 **Pattern phổ biến:** Hidden input + ref click — dùng ở mọi nơi cần custom UI cho file input (upload ảnh, import CSV, đính kèm file...).
+Đây là pattern rất phổ biến — dùng ở mọi nơi cần custom UI cho file input: upload ảnh, import CSV, đính kèm file...
 
 ---
 
-## 📁 2. `onFileChange` — Validate Ảnh Ở Frontend
+## 2. `onFileChange` — Validate Ảnh Ở Frontend
 
 ```typescript
 const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-  const fileFromLocal = event.target.files?.[0]    // Lấy file đầu tiên
-  if (!fileFromLocal) return                       // Không chọn gì → bỏ qua
+  const fileFromLocal = event.target.files?.[0]   // Lấy file đầu tiên trong danh sách
+  if (!fileFromLocal) return                       // User không chọn gì → bỏ qua
 
-  // Rule 1: Chỉ cho ảnh JPEG hoặc PNG
+  // Kiểm tra 1: Chỉ cho ảnh JPEG hoặc PNG
   const isValidType = ['image/jpeg', 'image/png'].includes(fileFromLocal.type)
   if (!isValidType) {
     setError('avatar', { message: 'Chỉ chấp nhận ảnh JPEG hoặc PNG', type: 'Manual' })
@@ -91,55 +93,57 @@ const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     return
   }
 
-  // Rule 2: Tối đa 1 MB
+  // Kiểm tra 2: Tối đa 1 MB
   if (fileFromLocal.size > 1024 * 1024) {
     setError('avatar', { message: 'Dung lượng ảnh tối đa là 1 MB', type: 'Manual' })
     toast.error('Dung lượng ảnh vượt quá 1 MB')
     return
   }
 
-  // Hợp lệ → lưu file và clear lỗi cũ
+  // Hợp lệ → lưu file vào state và xóa lỗi cũ
   clearErrors('avatar')
   setValue('avatar', fileFromLocal.name, { shouldValidate: true, shouldDirty: true })
   setFile(fileFromLocal)
 }
 ```
 
-### 2 rule validate:
+### 2 quy tắc validate:
 
-| Rule | Cách kiểm tra | Giá trị so sánh |
-|------|---------------|-----------------|
+| Quy tắc | Cách kiểm tra | Giá trị so sánh |
+|---------|---------------|----------------|
 | Định dạng | `fileFromLocal.type` | `'image/jpeg'` hoặc `'image/png'` |
 | Dung lượng | `fileFromLocal.size` | `1024 * 1024` = 1.048.576 bytes = 1 MB |
 
 ### File object chứa gì?
 
-Khi user chọn file "avatar.png" (500KB):
+Khi user chọn file "avatar.png" (500KB), `event.target.files[0]` là:
 
 ```typescript
-fileFromLocal = {
+{
   name: 'avatar.png',
-  type: 'image/png',        // ← MIME type
-  size: 512000,             // ← Bytes (500 KB)
-  lastModified: 1711234567
+  type: 'image/png',        // MIME type — trình duyệt tự xác định
+  size: 512000,             // Kích thước tính bằng bytes (500 KB × 1024 = 512.000)
+  lastModified: 1711234567  // Timestamp
 }
 ```
 
 ### Tại sao validate ở frontend trước?
 
 ```
-❌ Không validate frontend:
-  User chọn file 50MB .pdf → gửi lên server → chờ 30 giây → server trả lỗi
-  → Trải nghiệm tệ, tốn bandwidth
+Không có validate frontend:
+  User chọn file 50MB .pdf → gửi lên server → chờ upload 30 giây → server trả lỗi
+  → Trải nghiệm tệ, tốn bandwidth, người dùng bực bội
 
-✅ Có validate frontend:
+Có validate frontend:
   User chọn file 50MB .pdf → frontend chặn ngay → báo lỗi trong 0.01 giây
-  → Nhanh, không tốn request
+  → Nhanh, không tốn request, người dùng biết ngay phải làm gì
 ```
+
+Frontend validate là **lớp bảo vệ đầu tiên** — nhanh, thân thiện với user. Backend vẫn phải validate lại vì frontend có thể bị bypass.
 
 ---
 
-## 📁 3. Preview Ảnh — `URL.createObjectURL()`
+## 3. Preview Ảnh — `URL.createObjectURL()`
 
 ```typescript
 const previewImage = useMemo(() => {
@@ -153,17 +157,19 @@ const previewImage = useMemo(() => {
 
 ### `URL.createObjectURL()` hoạt động thế nào?
 
-Hàm này tạo một **URL tạm thời** trỏ đến file trên máy user — **không upload lên đâu cả**:
+Hàm này tạo một **URL tạm thời** trỏ đến file trong bộ nhớ máy tính của user — **không upload gì lên server cả**:
 
 ```
 file = File { name: 'photo.jpg', size: 200000 }
-   ↓
+    ↓
 URL.createObjectURL(file)
-   ↓
+    ↓
 "blob:http://localhost:3000/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-   ↓
-Trình duyệt dùng URL này để hiển thị ảnh từ bộ nhớ local
+    ↓
+Trình duyệt dùng URL này để hiển thị ảnh từ bộ nhớ local ngay lập tức
 ```
+
+Nhờ vậy user thấy ảnh preview ngay khi chọn, mà không cần đợi upload lên server xong.
 
 ### Logic ưu tiên hiển thị:
 
@@ -171,31 +177,31 @@ Trình duyệt dùng URL này để hiển thị ảnh từ bộ nhớ local
 src={previewImage || getAvatarUrl(avatar)}
 ```
 
-| Trường hợp | `previewImage` | Kết quả |
-|-----------|----------------|---------|
-| User vừa chọn ảnh mới | `"blob:..."` (truthy) | Hiện ảnh preview mới |
-| Chưa chọn ảnh mới | `""` (falsy) | Hiện avatar cũ từ server |
+| Trường hợp | `previewImage` | Kết quả hiển thị |
+|-----------|----------------|-----------------|
+| User vừa chọn ảnh mới | `"blob:..."` (truthy) | Ảnh preview mới chưa upload |
+| Chưa chọn ảnh mới | `""` (falsy) | Avatar cũ từ server |
 
-> 💡 **`useMemo`** đảm bảo `URL.createObjectURL` chỉ chạy lại khi `file` thay đổi — tránh tạo URL tạm thừa.
+`useMemo` đảm bảo `URL.createObjectURL` chỉ chạy lại khi `file` thay đổi — không tạo URL blob thừa mỗi lần re-render.
 
 ---
 
-## 📁 4. Upload Ảnh — Pattern 2 Bước
+## 4. Upload Ảnh — Pattern 2 Bước
 
-Khi submit, nếu có file mới → phải upload ảnh trước, rồi mới update profile:
+Khi submit, nếu có file mới → upload ảnh trước, lấy tên file, rồi mới update profile:
 
 ```typescript
 const onSubmit = handleSubmit(async (data) => {
   try {
-    let avatarName = avatar                    // Giữ tên cũ mặc định
+    let avatarName = avatar   // Giữ tên avatar cũ làm mặc định
 
-    // BƯỚC 1: Upload ảnh (nếu có chọn file mới)
+    // BƯỚC 1: Upload ảnh (chỉ khi user có chọn file mới)
     if (file) {
-      const form = new FormData()              // ← Tạo FormData
-      form.append('image', file)               // ← Key là 'image' (theo API)
+      const form = new FormData()     // Tạo FormData để gửi file
+      form.append('image', file)      // Key 'image' theo convention của API
       const uploadRes = await uploadAvatarMutation.mutateAsync(form)
-      avatarName = uploadRes.data.data          // ← Server trả về tên file
-      // Ví dụ: "abc123-avatar.png"
+      avatarName = uploadRes.data.data  // Server trả về tên file đã lưu
+      // Ví dụ: "abc123-1710000000000.jpg"
 
       if (!avatarName) {
         setError('avatar', { message: 'Upload ảnh thất bại...', type: 'Server' })
@@ -204,16 +210,16 @@ const onSubmit = handleSubmit(async (data) => {
       setValue('avatar', avatarName)
     }
 
-    // BƯỚC 2: Update profile với avatarName
+    // BƯỚC 2: Update profile với avatarName (tên file trên server)
     const res = await updateProfileMutation.mutateAsync({
       ...data,
       date_of_birth: data.date_of_birth?.toISOString(),
-      avatar: avatarName                        // ← Tên file ảnh
+      avatar: avatarName    // Chỉ gửi tên file, không gửi cả file binary lên đây
     })
 
-    setProfile(res.data.data)                   // Cập nhật Context
-    setProfileToLS(res.data.data)               // Cập nhật localStorage
-    refetch()                                   // Gọi lại getProfile
+    setProfile(res.data.data)      // Cập nhật Context
+    setProfileToLS(res.data.data)  // Cập nhật localStorage
+    refetch()                      // Đồng bộ với server
     toast.success(res.data.message)
   } catch (error) {
     // Xử lý lỗi...
@@ -221,35 +227,37 @@ const onSubmit = handleSubmit(async (data) => {
 })
 ```
 
-### Tại sao "2 bước" mà không gửi 1 lần?
+### Tại sao cần 2 bước mà không gửi tất cả 1 lần?
 
+**Gửi một lần (file + profile data chung):**
+- Backend phải xử lý `multipart/form-data` cho mọi request update profile — kể cả khi user chỉ đổi tên (không đổi ảnh)
+- Code phức tạp hơn ở cả frontend lẫn backend
+- Nếu update profile fail sau khi upload ảnh → ảnh đã upload bị "mồ côi"
+
+**Gửi 2 bước:**
 ```
-❌ Gửi 1 lần (text + file chung):
-  → Backend phải xử lý multipart phức tạp cho MỌI request update profile
-  → Kể cả khi user chỉ đổi tên (không đổi ảnh) cũng phải gửi multipart
-
-✅ Gửi 2 bước:
-  Bước 1: POST /user/upload-avatar (multipart) → trả về tên file
-  Bước 2: PUT /user (JSON) → gửi text + tên ảnh
-  → Đơn giản hơn, tách biệt rõ ràng
+Bước 1: POST /user/upload-avatar (multipart) → Server lưu ảnh → Trả về tên file
+Bước 2: PUT /user (JSON) → Gửi text + tên file (không gửi binary)
+→ Đơn giản, tách biệt rõ ràng
+→ Endpoint upload avatar có thể tái sử dụng ở nhiều nơi
 ```
 
 ### `FormData` là gì?
 
-`FormData` là API browser dùng để gửi dữ liệu dạng **multipart/form-data** — format bắt buộc khi upload file:
+`FormData` là API browser dùng để đóng gói dữ liệu theo định dạng `multipart/form-data` — định dạng bắt buộc khi upload file (không dùng JSON được vì JSON không chứa binary data):
 
 ```typescript
 const form = new FormData()
-form.append('image', file)
-// → Request body sẽ gửi file dưới dạng binary, không phải JSON
+form.append('image', file)   // 'image' là tên field, file là binary data
+// → Request body: multipart binary, không phải JSON
 ```
 
-Xem thêm ở `user.api.ts`:
+Trong `user.api.ts`:
 ```typescript
 uploadAvatar(body: FormData) {
   return http.post<SuccessResponse<string>>('user/upload-avatar', body, {
     headers: {
-      'Content-Type': 'multipart/form-data'     // ← Header bắt buộc
+      'Content-Type': 'multipart/form-data'   // Header bắt buộc
     }
   })
 }
@@ -257,7 +265,7 @@ uploadAvatar(body: FormData) {
 
 ---
 
-## 📁 5. Xử Lý Lỗi Upload
+## 5. Xử Lý Lỗi Upload
 
 ### Lỗi 422 (Unprocessable Entity) — Validation error từ server:
 
@@ -276,38 +284,38 @@ if (isAxiosUnprocessableEntityError<ErrorResponse<FormDataError>>(error)) {
 }
 ```
 
-**Logic:** Server trả object lỗi kiểu `{ name: "Tên quá dài", avatar: "Ảnh không hợp lệ" }` → duyệt qua từng key → `setError` lên form field tương ứng → UI hiện lỗi ngay dưới field đó.
+Server trả object lỗi dạng `{ avatar: "Ảnh không hợp lệ", name: "Tên quá dài" }` → duyệt qua từng key → gọi `setError()` để lỗi hiện ngay dưới field tương ứng trong form.
 
 ### Lỗi khác (500, network error...):
 
 ```typescript
-toast.error('Cập nhật hồ sơ thất bại. Vui lòng kiểm tra lại ảnh đại diện hoặc thử lại sau.')
+toast.error('Cập nhật hồ sơ thất bại. Vui lòng kiểm tra lại ảnh hoặc thử lại sau.')
 ```
 
 ---
 
-## 📁 6. Hidden Input `avatar` — Gắn Vào Form
+## 6. Hidden Input `avatar` — Gắn Vào Form
 
 ```tsx
 <input type='hidden' {...register('avatar')} />
 ```
 
-Field `avatar` không phải ô input user nhìn thấy, nhưng vẫn cần tham gia vào form để:
+Field `avatar` không cần hiển thị cho user, nhưng vẫn cần tham gia form để:
 
-1. **Validate** — yup schema kiểm tra `avatar.max(1000)`
-2. **Watch** — `const avatar = watch('avatar')` lấy giá trị hiện tại
+1. **Validate** — Yup schema kiểm tra `avatar.max(1000)` (độ dài tên file)
+2. **Watch** — `const avatar = watch('avatar')` lấy giá trị tên avatar hiện tại
 3. **Set error** — `setError('avatar', {...})` gắn lỗi lên field này
 4. **Submit** — giá trị `avatar` được gửi cùng form data
 
 ---
 
-## 📁 7. `getAvatarUrl()` — Chuẩn Hóa URL Ảnh
+## 7. `getAvatarUrl()` — Chuẩn Hóa URL Ảnh
 
 ```typescript
 export const getAvatarUrl = (avatar?: string) => {
-  if (!avatar) return userImage                      // TH1: Không có → ảnh mặc định
-  if (/^https?:\/\//i.test(avatar)) return avatar    // TH2: Đã là URL đầy đủ → giữ nguyên
-  return `${config.baseUrl}images/${avatar}`          // TH3: Chỉ là tên file → ghép URL
+  if (!avatar) return userImage                        // Không có avatar → ảnh mặc định
+  if (/^https?:\/\//i.test(avatar)) return avatar     // Đã là URL đầy đủ → giữ nguyên
+  return `${config.baseUrl}images/${avatar}`           // Chỉ là tên file → ghép thành URL hoàn chỉnh
 }
 ```
 
@@ -315,23 +323,25 @@ export const getAvatarUrl = (avatar?: string) => {
 
 | Input | Output | Ví dụ |
 |-------|--------|-------|
-| `undefined` / `""` | `user.svg` | User mới tạo, chưa có avatar |
-| `"https://abc.com/img.jpg"` | Giữ nguyên | Avatar từ OAuth (Google, Facebook) |
-| `"abc123-avatar.png"` | `"https://api-ecom.../images/abc123-avatar.png"` | Avatar upload qua app |
+| `undefined` hoặc `""` | `user.svg` (ảnh mặc định) | User mới tạo tài khoản, chưa có avatar |
+| `"https://abc.com/img.jpg"` | Giữ nguyên URL | Avatar từ OAuth (Google, Facebook) |
+| `"abc123.jpg"` | `"https://api.../images/abc123.jpg"` | Avatar upload qua app |
 
-### Regex `^https?:\/\/` giải thích:
+### Giải thích Regex `^https?:\/\/`:
 
 ```
-^        → bắt đầu chuỗi
+^        → bắt đầu chuỗi (không phải https ở giữa)
 http     → ký tự "http" literal
 s?       → ký tự "s" (0 hoặc 1 lần) → match cả http và https
-:\/\/    → ký tự "://" (escape dấu /)
-/i       → case-insensitive
+:\/\/    → ký tự "://" (phải escape dấu / trong regex)
+/i       → case-insensitive (match cả HTTP:// lẫn https://)
 ```
+
+Hàm này cần thiết vì avatar có thể đến từ nhiều nguồn khác nhau (upload trực tiếp, OAuth, legacy data...) với format khác nhau. Thay vì xử lý ở mỗi component, tập trung logic vào `getAvatarUrl()`.
 
 ---
 
-## 📁 8. `config.ts` — Tập Trung Cấu Hình
+## 8. `config.ts` — Tập Trung Cấu Hình Base URL
 
 ```typescript
 const config = {
@@ -340,18 +350,18 @@ const config = {
 export default config
 ```
 
-Sau đó `http.ts` đổi từ hard-code:
+Sau đó `http.ts` đổi từ hardcode sang dùng config:
 
 ```diff
 - baseURL: 'https://api-ecom.duthanhduoc.com/'
 + baseURL: config.baseUrl
 ```
 
-**Lợi ích:** Một nguồn sự thật duy nhất cho URL. Khi đổi server (dev → staging → prod), chỉ sửa 1 chỗ.
+**Tại sao cần?** Khi deploy lên môi trường khác (staging, production), chỉ cần sửa `config.ts` ở một chỗ — không phải tìm và sửa ở nhiều file. Đây là nguyên tắc **Single Source of Truth** (một nguồn sự thật duy nhất).
 
 ---
 
-## 🔗 Luồng Hoạt Động Đầy Đủ
+## Luồng Hoạt Động Đầy Đủ
 
 ```
 1. User mở /user/profile → avatar cũ hiển thị (qua getAvatarUrl)
@@ -367,19 +377,19 @@ Sau đó `http.ts` đổi từ hard-code:
    b) Update profile: PUT /user { ...data, avatar: "abc123.jpg" }
    c) Cập nhật Context + localStorage + refetch
 7. NavHeader + SideNav + Profile đều hiện avatar mới qua getAvatarUrl("abc123.jpg")
-8. Toast "Cập nhật thành công!" 🎉
+8. Toast "Cập nhật thành công!"
 ```
 
 ---
 
-## 📌 Kiến Thức Mới
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **Hidden input + `ref.click()`** | Ẩn input file xấu, dùng nút đẹp + code click vào input ẩn |
-| **`FormData` + `multipart/form-data`** | Kiểu gửi dữ liệu bắt buộc khi upload file lên server |
-| **Client-side file validation** | Kiểm tra type/size ngay ở browser — nhanh, tiết kiệm bandwidth |
-| **`URL.createObjectURL(file)`** | Tạo URL tạm từ file local để preview — không cần upload |
-| **Pattern upload 2 bước** | Upload file trước → lấy tên → update profile sau — tách biệt multipart và JSON |
-| **`getAvatarUrl()` normalize** | Hàm xử lý 3 trường hợp avatar: không có / URL đầy đủ / chỉ tên file |
-| **`config.ts` centralize** | Gom cấu hình (baseUrl) vào 1 file — single source of truth |
+| **Hidden input + `ref.click()`** | Ẩn input file mặc định của browser (trông xấu), dùng nút custom + code trigger click vào input ẩn để mở hộp thoại chọn file. |
+| **`FormData` + `multipart/form-data`** | Kiểu gửi dữ liệu bắt buộc khi upload file. Không dùng JSON vì JSON không chứa được binary data. |
+| **Client-side file validation** | Kiểm tra type và size của file ngay ở browser trước khi gửi lên server. Nhanh, tiết kiệm bandwidth, trải nghiệm tốt hơn. |
+| **`URL.createObjectURL(file)`** | Tạo URL tạm từ file trong bộ nhớ local để preview — không cần upload. URL chỉ tồn tại trong phiên làm việc hiện tại. |
+| **Pattern upload 2 bước** | Upload file trước (nhận tên file) → update data sau (gửi tên file). Giúp tách biệt `multipart` và `JSON`, endpoint upload có thể tái sử dụng. |
+| **`getAvatarUrl()` normalize** | Hàm chuẩn hóa avatar URL xử lý 3 trường hợp: không có / URL đầy đủ / chỉ tên file. Đặt logic ở một chỗ thay vì xử lý rải rác ở nhiều component. |
+| **`config.ts` centralize** | Gom cấu hình (baseUrl) vào một file duy nhất. Khi đổi môi trường, chỉ sửa một chỗ. |

@@ -1,357 +1,368 @@
-# 22fe39e — feat: Xử lý chức năng mua ngay
+# 22fe39e — feat: Xử lý chức năng Mua ngay
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
-Commit này thực hiện **4 thay đổi lớn**:
+Commit này thêm chức năng **Mua ngay** (Buy Now) vào trang Chi tiết sản phẩm. Khi user bấm nút này, sản phẩm được thêm vào giỏ hàng và người dùng được chuyển thẳng đến trang giỏ hàng — với đúng sản phẩm vừa mua đang được chọn sẵn.
 
-1. **Chức năng "Mua ngay"** trên trang Chi tiết sản phẩm — bấm "Mua ngay" → thêm SP vào giỏ → chuyển thẳng sang trang Cart → SP đó tự động được tick chọn.
-2. **Nâng `extendedPurchases` lên `AppContext`** — trước đây state này nằm local trong Cart, giờ đưa lên global context.
-3. **UI giỏ hàng trống** — hiển thị ảnh + nút "Mua ngay" khi giỏ không có sản phẩm nào.
-4. **Xóa `location.state`** khi rời Cart — tránh bug tự động tick sản phẩm sai khi quay lại trang Cart.
+Đây là tính năng phổ biến trên mọi sàn TMĐT (Shopee, Lazada, Tiki...).
 
 ---
 
-## Sơ đồ luồng "Mua Ngay" tổng thể:
+## Các File Thay Đổi
 
-```
-Trang Chi Tiết SP                        Trang Cart
-┌──────────────────┐                    ┌─────────────────────────┐
-│                  │                    │                         │
-│  [Thêm vào giỏ]  │                    │  ☐ Sản phẩm A           │
-│  [  Mua ngay  ]  │ ── navigate ──→    │  ☑ Sản phẩm B ← TỰ TICK │
-│                  │   kèm state:       │  ☐ Sản phẩm C           │
-│                  │   purchaseId='b'   │                         │
-└──────────────────┘                    └─────────────────────────┘
-```
+| File | Loại thay đổi | Vai trò |
+|------|---------------|---------|
+| `src/pages/ProductDetail/ProductDetail.tsx` | Sửa | Thêm hàm `handleBuyNow` |
+| `src/pages/Cart/Cart.tsx` | Sửa lớn | Đọc `purchaseId` từ navigation state, tự động check sản phẩm vừa mua |
+| `src/contexts/app.context.tsx` | Sửa | Thêm `extendedPurchases` state vào AppContext (Lifting State Up) |
+| `src/types/purchase.type.ts` | Sửa | Thêm kiểu `ExtendedPurchase` |
 
 ---
 
-## 📁 1. `src/types/purchase.type.ts` — Di chuyển `ExtendedPurchase` ra file type
+## 1. Vấn Đề — State Ở Đâu?
 
-### Trước đây:
-`ExtendedPurchase` được định nghĩa **bên trong `Cart.tsx`** (chỉ Cart dùng)
-
-### Bây giờ:
-```typescript
-// src/types/purchase.type.ts
-export interface ExtendedPurchase extends Purchase {
-  disabled: boolean
-  checked: boolean
-}
-```
-
-**Tại sao di chuyển?** Vì giờ `AppContext` cũng cần biết type này (để khai báo state global). Đặt trong file type chung → cả `Cart.tsx` lẫn `app.context.tsx` đều import được.
-
----
-
-## 📁 2. `src/contexts/app.context.tsx` — Nâng State Lên Global
-
-### Thêm `extendedPurchases` vào AppContext:
+### Trước commit này: `extendedPurchases` nằm trong `Cart.tsx`
 
 ```typescript
-import type { ExtendedPurchase } from '~/types/purchase.type'
-
-interface AppContextInterface {
-  isAuthenticated: boolean
-  setIsAuthenticated: React.Dispatch<React.SetStateAction<boolean>>
-  profile: User | null
-  setProfile: React.Dispatch<React.SetStateAction<User | null>>
-  extendedPurchases: ExtendedPurchase[]                                    // ← MỚI
-  setExtendedPurchases: React.Dispatch<React.SetStateAction<ExtendedPurchase[]>>  // ← MỚI
-}
-```
-
-Trong `AppProvider`:
-```typescript
+// Cart.tsx — state chỉ sống trong component này
 const [extendedPurchases, setExtendedPurchases] = useState<ExtendedPurchase[]>([])
 ```
 
-### Tại sao phải nâng lên global ("Lifting State Up")?
+`ExtendedPurchase` là `Purchase` cộng thêm 2 field UI:
 
-**Vấn đề:** Trang `ProductDetail` bấm "Mua ngay" cần **biết và thay đổi** danh sách sản phẩm trong giỏ (để tự động tick SP vừa mua). Nhưng `extendedPurchases` trước đây nằm local bên trong `Cart.tsx` — `ProductDetail.tsx` hoàn toàn không truy cập được.
+```typescript
+interface ExtendedPurchase extends Purchase {
+  disabled: boolean   // true = đang xử lý (disable checkbox/button tạm thời)
+  checked: boolean    // true = đang được chọn để thanh toán
+}
+```
 
-**Giải pháp:** Đưa state lên `AppContext` → bất kỳ component nào (Cart, ProductDetail, Header...) đều có thể đọc/ghi `extendedPurchases`.
+**Vấn đề khi `extendedPurchases` nằm trong `Cart`:**
+
+Trang `ProductDetail` cần thêm sản phẩm vào giỏ rồi điều khiển `Cart` check đúng sản phẩm đó. Nhưng `ProductDetail` và `Cart` là 2 route riêng biệt — không có quan hệ cha-con. `ProductDetail` không thể gọi `setExtendedPurchases` của `Cart`.
+
+### Giải pháp: Lifting State Up + Navigation State
+
+Có 2 cách để `ProductDetail` "nhắn tin" cho `Cart`:
+
+**Cách 1: Lifting State Up (đã dùng)**
+
+Chuyển `extendedPurchases` lên `AppContext` → cả `ProductDetail` và `Cart` đều có thể truy cập.
+
+**Cách 2: Navigation State (cũng dùng)**
+
+Truyền thêm data theo khi navigate — `Cart` đọc data từ `location.state`.
+
+Commit này dùng **cả 2 cách kết hợp**:
+- `extendedPurchases` lên AppContext để `Cart` quản lý checked state đúng chỗ
+- `purchaseId` theo navigation state để `Cart` biết cần auto-check sản phẩm nào
+
+---
+
+## 2. `purchase.type.ts` — Thêm `ExtendedPurchase`
+
+```typescript
+import type { Purchase } from './purchase.type'
+
+export interface ExtendedPurchase extends Purchase {
+  disabled: boolean   // Ngăn user tương tác trong khi đang gọi API
+  checked: boolean    // Trạng thái checkbox trong giỏ hàng
+}
+```
+
+`extends` trong TypeScript Interface: tạo type mới kế thừa tất cả field của type cha, rồi thêm field mới. Kết quả là `ExtendedPurchase` có mọi field của `Purchase` CỘNG THÊM `disabled` và `checked`.
+
+`disabled` và `checked` là **trạng thái UI thuần túy** — server không biết cái này. Đây là lý do chúng không nằm trong `Purchase` (type ánh xạ từ server), mà phải tạo interface riêng.
+
+---
+
+## 3. `app.context.tsx` — Lifting State Up
+
+### Lifting State Up là gì?
+
+**Lifting State Up** là pattern React: khi nhiều component cần **đọc hoặc thay đổi cùng một state**, chuyển state đó lên **component cha chung gần nhất** (hoặc Context nếu component xa nhau trong cây).
 
 ```
 TRƯỚC:
-  ProductDetail ──(X)──→ Cart.useState (không truy cập được)
+App
+├── ProductDetail    (cần setExtendedPurchases → không thể)
+└── Cart             (có extendedPurchases state)
 
 SAU:
-  ProductDetail ──→ AppContext.extendedPurchases ←── Cart
-                  (cả hai cùng đọc/ghi qua Context)
+AppContext           ← extendedPurchases state ở đây
+├── ProductDetail    (lấy từ Context → có thể!)
+└── Cart             (lấy từ Context → dùng bình thường)
 ```
 
-> 💡 **"Lifting State Up"** là một pattern cốt lõi trong React: khi 2 component cần chia sẻ cùng 1 state → đưa state lên component cha chung gần nhất (ở đây là AppContext bọc toàn bộ app).
+### Code:
+
+```typescript
+// src/types/purchase.type.ts
+export type ExtendedPurchase = Purchase & {   // hoặc interface extends
+  disabled: boolean
+  checked: boolean
+}
+
+// src/contexts/app.context.tsx
+interface AppContextInterface {
+  // ... các field cũ ...
+  extendedPurchases: ExtendedPurchase[]
+  setExtendedPurchases: React.Dispatch<React.SetStateAction<ExtendedPurchase[]>>
+}
+
+const initialAppContext: AppContextInterface = {
+  // ... các field cũ ...
+  extendedPurchases: [],
+  setExtendedPurchases: () => null
+}
+
+// Trong AppProvider:
+const [extendedPurchases, setExtendedPurchases] = useState<ExtendedPurchase[]>(
+  initialAppContext.extendedPurchases
+)
+```
 
 ---
 
-## 📁 3. `src/pages/ProductDetail/ProductDetail.tsx` — Hàm `buyNow`
+## 4. `ProductDetail.tsx` — Hàm `handleBuyNow`
 
-### Import mới:
 ```typescript
-import { useNavigate, useParams } from 'react-router-dom'
-import path from '~/constants/path'
-```
+const buyNowMutation = useMutation({
+  mutationFn: purchaseApi.addToCart
+})
 
-### Hàm `buyNow`:
-```typescript
-const navigate = useNavigate()
-
-const buyNow = async () => {
-  const res = await addToCartMutation.mutateAsync({
-    buy_count: buyCount,
-    product_id: product?._id as string
+const handleBuyNow = async () => {
+  // Thêm vào giỏ hàng (API giống hàm "Thêm vào giỏ")
+  const res = await buyNowMutation.mutateAsync({
+    product_id: product._id,
+    buy_count: buyCount
   })
+
+  // Lấy ID của purchase vừa tạo
   const purchase = res.data.data
+
+  // Chuyển đến giỏ hàng, kèm purchaseId trong navigation state
   navigate(path.cart, {
-    state: {
-      purchaseId: purchase._id
-    }
+    state: { purchaseId: purchase._id }   // Thuộc tính state trong navigate
   })
 }
 ```
 
-### Giải thích từng dòng:
+### `navigate(path, { state })` là gì?
 
-#### Bước 1: `mutateAsync` thay vì `mutate`
+React Router cho phép truyền data kèm theo khi navigate — data này không xuất hiện trên URL, chỉ tồn tại trong bộ nhớ trình duyệt (History API):
 
-```typescript
-const res = await addToCartMutation.mutateAsync({ ... })
+```
+URL sau navigate: /cart            ← Không thấy purchaseId trên URL
+state:            { purchaseId: 'abc123' }  ← Ẩn, chỉ Cart.tsx đọc được
 ```
 
-| | `mutate()` | `mutateAsync()` |
+So sánh với query params:
+
+| | `navigation state` | `query params` |
 |---|---|---|
-| **Trả về** | `void` (không trả gì) | `Promise` (trả kết quả API) |
-| **Xử lý kết quả** | Dùng callback `onSuccess` | Dùng `await` + biến `res` |
-| **Khi nào dùng** | Không cần dùng kết quả ngay | Cần dùng kết quả cho bước tiếp theo |
+| Hiển thị trên URL | Không | Có |
+| Tồn tại sau reload | Không | Có |
+| Tồn tại sau mở tab mới | Không | Có |
+| Khi nào dùng | Dữ liệu nhạy cảm / tạm thời | Dữ liệu có thể share |
 
-Ở đây ta **CẦN** lấy `purchase._id` từ kết quả API → dùng `mutateAsync` + `await`.
-
-#### Bước 2: Lấy `purchase._id` từ response
-
-```typescript
-const purchase = res.data.data
-```
-
-Server trả về thông tin Purchase vừa tạo, bao gồm `_id` — ta cần ID này để Cart biết tick sản phẩm nào.
-
-#### Bước 3: Navigate kèm state
-
-```typescript
-navigate(path.cart, {
-  state: {
-    purchaseId: purchase._id
-  }
-})
-```
-
-**`navigate` với `state` là gì?**
-
-React Router cho phép truyền **dữ liệu ẩn** khi chuyển trang (không hiện trên URL):
-
-```
-URL thấy:    /cart                    ← Sạch sẽ, không có query string
-Dữ liệu ẩn: { purchaseId: '123abc' } ← Chỉ code đọc được qua location.state
-```
-
-→ Trang Cart nhận diện: "À, user vừa bấm Mua ngay SP có ID `123abc` → tự tick SP đó lên!"
-
-### Gắn vào nút "Mua ngay":
-```tsx
-<button
-  onClick={buyNow}     // ← Gọi hàm buyNow
-  className='bg-orange ...'
->
-  Mua ngay
-</button>
-```
+`purchaseId` phù hợp với navigation state vì: chỉ cần biết một lần khi vừa navigate đến giỏ, không cần giữ lại sau reload.
 
 ---
 
-## 📁 4. `src/pages/Cart/Cart.tsx` — Nhận State & Xử Lý
+## 5. `Cart.tsx` — Đọc `purchaseId` + Auto-Check Sản Phẩm
 
-### 4.1. Dùng Context thay vì local state
+### Dùng `extendedPurchases` từ Context:
 
 ```typescript
-// TRƯỚC:
+// TRƯỚC — state local
 const [extendedPurchases, setExtendedPurchases] = useState<ExtendedPurchase[]>([])
 
-// SAU:
+// SAU — từ AppContext
 const { extendedPurchases, setExtendedPurchases } = useContext(AppContext)
 ```
 
-### 4.2. Đọc `location.state` để biết tick SP nào
+### Đọc `purchaseId` từ navigation state:
 
 ```typescript
 const location = useLocation()
-const choosenPurchaseIdFromLocation = (location.state as { purchaseId: string | null })?.purchaseId
+// location.state = { purchaseId: 'abc123' } (từ ProductDetail.tsx)
+//               hoặc null (nếu user vào Cart trực tiếp)
+
+const choosenPurchaseIdFromLocation = (location.state as { purchaseId: string } | null)?.purchaseId
 ```
 
-| Biến | Giá trị | Ý nghĩa |
-|------|---------|---------|
-| `location.state` | `{ purchaseId: '123abc' }` hoặc `null` | Dữ liệu ẩn từ trang trước truyền sang |
-| `choosenPurchaseIdFromLocation` | `'123abc'` hoặc `undefined` | ID sản phẩm cần tự động tick |
+`useLocation()` hook của React Router trả về toàn bộ location object, bao gồm `state` mà `navigate()` đã truyền.
 
-### 4.3. `useEffect` cập nhật — Tự động tick SP từ "Mua ngay"
+### `useEffect` sync API data + auto-check purchase:
 
 ```typescript
 useEffect(() => {
   setExtendedPurchases((prev) => {
-    const extendedPurchasesObject = keyBy(prev, '_id')
-    return (
-      purchasesInCart?.map((purchase) => {
-        const isChoosenPurchaseFromLocation = choosenPurchaseIdFromLocation === purchase._id
-        return {
-          ...purchase,
-          disabled: false,
-          checked: isChoosenPurchaseFromLocation || Boolean(extendedPurchasesObject[purchase._id]?.checked)
-          //        ↑ NẾU là SP từ "Mua ngay" → tick!    ↑ HOẶC giữ trạng thái tick cũ
-        }
-      }) || []
-    )
+    return purchasesInCart.map((purchase) => {
+      const isChoosenPurchaseFromLocation = choosenPurchaseIdFromLocation === purchase._id
+
+      // Tìm xem purchase này có tồn tại trong prev state không
+      const extendedPurchase = prev.find((item) => item._id === purchase._id)
+
+      return {
+        ...purchase,   // Merge data mới nhất từ API
+        disabled: false,
+        // Nếu vừa navigate đến với purchaseId: auto-check
+        // Nếu đã tồn tại trong prev: giữ nguyên checked state cũ
+        // Mặc định: false
+        checked: isChoosenPurchaseFromLocation || Boolean(extendedPurchase?.checked)
+      }
+    })
   })
 }, [purchasesInCart, choosenPurchaseIdFromLocation])
 ```
 
-**Logic `checked`:**
+Logic này chạy khi `purchasesInCart` (data từ API) thay đổi. Nó "merge" dữ liệu server với UI state:
 
 ```
-checked = isChoosenPurchaseFromLocation || Boolean(extendedPurchasesObject[purchase._id]?.checked)
+Giỏ hàng từ API: [ {_id: 'abc', product: {...}}, {_id: 'xyz', product: {...}} ]
+Navigation state: { purchaseId: 'abc' }
+
+Kết quả extendedPurchases:
+[
+  { _id: 'abc', ...product, disabled: false, checked: true  },  ← Auto-check (purchaseId match)
+  { _id: 'xyz', ...product, disabled: false, checked: false }   ← Không check
+]
 ```
 
-| Điều kiện | Kết quả | Ý nghĩa |
-|-----------|---------|---------|
-| SP khớp ID từ "Mua ngay" | `true \|\| ...` = `true` ☑ | **Tự động tick** SP vừa bấm "Mua ngay" |
-| SP không khớp + đã tick trước đó | `false \|\| true` = `true` ☑ | **Giữ nguyên** trạng thái tick cũ |
-| SP không khớp + chưa tick | `false \|\| false` = `false` ☐ | Không tick |
-
-### 4.4. Xóa `location.state` khi rời Cart
+### Cleanup `location.state` với `history.replaceState`:
 
 ```typescript
 useEffect(() => {
   return () => {
+    // Xóa state khi rời khỏi trang Cart
     history.replaceState(null, '')
+    // → Ngăn auto-check lại khi user bấm back rồi forward
   }
-})
+}, [])
 ```
 
-**Vấn đề nếu không xóa:**
-1. User bấm "Mua ngay" → Cart mở → SP B được tick ✅
-2. User quay lại trang chủ
-3. User vào lại Cart bằng biểu tượng giỏ hàng
-4. **BUG:** `location.state` vẫn còn `{ purchaseId: 'B' }` → SP B lại bị tick tự động! ❌
+**Vấn đề nếu không cleanup:**
 
-**Giải pháp:** Dùng **cleanup function** trong `useEffect` (hàm `return`). Khi Cart **unmount** (rời trang) → gọi `history.replaceState(null, '')` để xóa sạch state trong history.
+Khi user ở Cart (`state = { purchaseId: 'abc' }`), bấm về trang chủ, rồi bấm Forward lại Cart → navigation state vẫn còn → sản phẩm bị auto-check lần thứ 2 không mong muốn.
 
-> 💡 **`history.replaceState(null, '')`** — API gốc của Browser (không phải của React). Thay thế entry hiện tại trong history stack bằng state `null` → xóa dữ liệu ẩn.
+**`history.replaceState(null, '')`** — thay thế entry hiện tại trong History stack bằng state `null`, xóa sạch data mà không thêm entry mới vào history (khác với `history.pushState` thêm entry mới).
 
-### 4.5. Tối ưu với `useMemo`
+---
+
+## 6. Các Handler Khác Trong `Cart.tsx`
+
+### `handleCheck` — Toggle một checkbox:
 
 ```typescript
-// TRƯỚC (tính lại mỗi lần bất kỳ state nào thay đổi):
-const isAllChecked = extendedPurchases.every(...)
-const checkedPurchases = extendedPurchases.filter(...)
-const totalCheckedPurchasePrice = checkedPurchases.reduce(...)
-
-// SAU (chỉ tính lại khi dependency thay đổi):
-const isAllChecked = useMemo(() => extendedPurchases.every(...), [extendedPurchases])
-const checkedPurchases = useMemo(() => extendedPurchases.filter(...), [extendedPurchases])
-const totalCheckedPurchasePrice = useMemo(() => checkedPurchases.reduce(...), [checkedPurchases])
-const totalCheckedPurchaseSavingPrice = useMemo(() => checkedPurchases.reduce(...), [checkedPurchases])
+const handleCheck = (purchaseIndex: number) => (event: React.ChangeEvent<HTMLInputElement>) => {
+  setExtendedPurchases(
+    produce(extendedPurchases, (draft) => {
+      draft[purchaseIndex].checked = event.target.checked
+    })
+  )
+}
 ```
 
-Dùng `useMemo` tránh **tính toán thừa**. Ví dụ khi `extendedPurchases` không đổi nhưng component re-render vì lý do khác → các phép `.every()`, `.filter()`, `.reduce()` không cần chạy lại.
+**`produce` từ Immer:** Thư viện giúp immutable update dễ dàng. Thay vì phải spread object để tránh mutate trực tiếp:
 
-### 4.6. UI Giỏ hàng trống
+```typescript
+// Cách thông thường (dài và phức tạp)
+setExtendedPurchases(
+  extendedPurchases.map((item, index) =>
+    index === purchaseIndex ? { ...item, checked: event.target.checked } : item
+  )
+)
 
-```tsx
-{extendedPurchases.length > 0 ? (
-  <>
-    {/* ... Bảng hiển thị danh sách SP ... */}
-    {/* ... Footer tổng tiền ... */}
-  </>
-) : (
-  <div className='text-center'>
-    <img src={noproduct} alt='no purchase' className='mx-auto h-24 w-24' />
-    <div className='mt-5 font-bold text-gray-400'>Giỏ hàng của bạn còn trống</div>
-    <div className='mt-5 text-center'>
-      <Link
-        to={path.home}
-        className='bg-orange hover:bg-orange/80 rounded-sm px-10 py-2 text-white uppercase'
-      >
-        Mua ngay
-      </Link>
-    </div>
-  </div>
-)}
+// Với Immer produce (ngắn gọn, dễ đọc)
+setExtendedPurchases(
+  produce(extendedPurchases, (draft) => {
+    draft[purchaseIndex].checked = event.target.checked   // Trực tiếp mutate draft!
+  })
+)
 ```
 
-Khi giỏ trống, thay vì hiện bảng trắng trơn, giờ hiện:
-- 🖼️ Ảnh "no product"
-- 📝 Text "Giỏ hàng của bạn còn trống"
-- 🔘 Nút "Mua ngay" dẫn về trang chủ
+`produce(state, recipe)` tạo bản sao sâu (deep copy) của `state`, gọi `recipe` với bản sao đó (tên là `draft`). Trong `recipe` có thể mutate `draft` thoải mái — Immer tự động tạo state mới immutable và không ảnh hưởng đến state gốc.
+
+### `handleSelectAll` + `isAllChecked`:
+
+```typescript
+const isAllChecked = useMemo(
+  () => extendedPurchases.every((purchase) => purchase.checked),
+  [extendedPurchases]
+)
+
+const handleSelectAll = () => {
+  setExtendedPurchases(
+    produce(extendedPurchases, (draft) => {
+      draft.forEach((purchase) => {
+        purchase.checked = !isAllChecked   // Nếu tất cả đang checked → uncheck hết, và ngược lại
+      })
+    })
+  )
+}
+```
+
+`useMemo` tính toán `isAllChecked` chỉ khi `extendedPurchases` thay đổi — không tính lại mỗi khi render.
+
+### `checkedPurchases` và `checkedPurchasesCount`:
+
+```typescript
+const checkedPurchases = useMemo(
+  () => extendedPurchases.filter((purchase) => purchase.checked),
+  [extendedPurchases]
+)
+
+const checkedPurchasesCount = checkedPurchases.length
+```
+
+`checkedPurchases` là **derived state** — không cần state riêng, chỉ cần filter từ `extendedPurchases`. Dùng `useMemo` để tránh filter lại mỗi render.
 
 ---
 
-## 🔗 Luồng Hoạt Động Đầy Đủ
+## Luồng Hoạt Động Đầy Đủ
 
 ```
-1. User ở trang Chi tiết SP "Áo Thun", chọn SL = 2, bấm [Mua ngay]
-       │
-       ▼
-2. buyNow() chạy:
-   a) await addToCartMutation.mutateAsync({ product_id: 'ao-123', buy_count: 2 })
-   b) Server tạo Purchase, trả về { _id: 'purchase-456', ... }
-   c) navigate('/cart', { state: { purchaseId: 'purchase-456' } })
-       │
-       ▼
-3. React Router chuyển sang /cart → CartLayout mount → Cart mount
-       │
-       ▼
-4. Cart.tsx:
-   a) useLocation() → location.state = { purchaseId: 'purchase-456' }
-   b) choosenPurchaseIdFromLocation = 'purchase-456'
-   c) useQuery fetch giỏ hàng → purchasesInCart = [SP_A, SP_AoThun, SP_C]
-       │
-       ▼
-5. useEffect chạy (vì purchasesInCart thay đổi):
-   Map qua từng SP:
-     SP_A (id ≠ purchase-456)      → checked = false ☐
-     SP_AoThun (id = purchase-456) → checked = TRUE  ☑ ← TỰ ĐỘNG TICK!
-     SP_C (id ≠ purchase-456)      → checked = false ☐
-       │
-       ▼
-6. UI render: ☐ SP_A  ☑ SP_AoThun (2 cái)  ☐ SP_C
-   Tổng thanh toán: ₫xxx (chỉ tính Áo Thun)
-       │
-       ▼
-7. User rời trang Cart → useEffect cleanup chạy:
-   history.replaceState(null, '') → Xóa sạch location.state
-   → Lần sau vào Cart không bị tick tự động nữa ✅
+1. User xem sản phẩm áo thun tại /product/ao-thun-dep
+2. User chọn size M, số lượng 2, bấm [Mua ngay]
+
+3. handleBuyNow():
+   a) buyNowMutation.mutateAsync() → POST /purchases/add-to-cart
+   b) Server tạo purchase → trả về { _id: 'purchase123', product: {...} }
+   c) navigate('/cart', { state: { purchaseId: 'purchase123' } })
+
+4. React Router render trang Cart
+
+5. Cart.tsx:
+   a) useLocation() → state = { purchaseId: 'purchase123' }
+   b) choosenPurchaseIdFromLocation = 'purchase123'
+   c) useQuery lấy danh sách giỏ hàng:
+      [ { _id: 'purchase123', ... }, { _id: 'otherPurchase', ... } ]
+
+6. useEffect chạy → sync API data + auto-check:
+   extendedPurchases = [
+     { _id: 'purchase123', checked: true  },   ← Auto-check! (purchaseId match)
+     { _id: 'otherPurchase', checked: false }  ← Không check
+   ]
+
+7. UI: áo thun size M đang được checked sẵn trong giỏ hàng
+
+8. Khi Cart unmount (user rời trang):
+   history.replaceState(null, '') → xóa purchaseId khỏi history state
+   → Nếu bấm back rồi forward, không còn tự động check nữa
 ```
 
 ---
 
-## 📁 Tóm Tắt Các File Thay Đổi
-
-| File | Thay đổi | Mục đích |
-|------|----------|----------|
-| `purchase.type.ts` | Thêm `ExtendedPurchase` interface | Dùng chung cho cả Cart lẫn AppContext |
-| `app.context.tsx` | Thêm `extendedPurchases` + `setExtendedPurchases` | Chia sẻ state giỏ hàng giữa các trang |
-| `ProductDetail.tsx` | Thêm hàm `buyNow` + `useNavigate` | Mua ngay → thêm giỏ → chuyển Cart kèm ID |
-| `Cart.tsx` | Dùng Context + `useLocation` + `useMemo` + cleanup | Nhận ID → auto tick, tối ưu performance, xóa state cũ |
-| `Header.tsx` | (Nhỏ) `enabled: isAuthenticated` | Không gọi API giỏ hàng khi chưa đăng nhập |
-
----
-
-## 📌 Kiến Thức Mới
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **`mutateAsync` vs `mutate`** | `mutate` = fire-and-forget (dùng callback). `mutateAsync` = trả Promise, dùng `await` để lấy kết quả ngay |
-| **`navigate(path, { state })`** | Chuyển trang kèm dữ liệu ẩn (không hiện trên URL) — đọc bằng `useLocation().state` |
-| **`history.replaceState(null, '')`** | Xóa `state` khỏi history entry hiện tại — tránh bug khi quay lại trang |
-| **Lifting State Up** | Đưa state từ component con lên component cha/context khi nhiều component cần chia sẻ |
-| **`useMemo` cho derived state** | Cache kết quả tính toán (filter, reduce, every) — chỉ tính lại khi dependency thay đổi |
-| **Cleanup function trong useEffect** | Hàm `return` bên trong `useEffect` chạy khi component **unmount** hoặc trước khi effect chạy lại |
-| **Fragment `<>...</>`** | Bọc nhiều element mà không tạo thêm DOM node thừa (thay cho `<div>` wrapper) |
+| **Lifting State Up** | Chuyển state lên component cha chung (hoặc Context) khi nhiều component cần cùng state. Giải pháp tiêu chuẩn cho vấn đề chia sẻ state giữa các component không liên quan. |
+| **Navigation State** | Data truyền theo khi `navigate(path, { state })`. Không xuất hiện trên URL, không tồn tại sau reload. Dùng cho data tạm thời chỉ cần biết ngay sau navigate. |
+| **`useLocation()`** | Hook của React Router để đọc URL hiện tại và navigation state. `location.state` chứa data từ `navigate(..., { state })`. |
+| **`history.replaceState()`** | Web API thay đổi state của history entry hiện tại mà không thêm entry mới. Dùng để cleanup navigation state khi component unmount — ngăn stale state ảnh hưởng lần navigate sau. |
+| **Immer `produce()`** | Thư viện cho phép "mutate" state trong hàm recipe — thực ra Immer tạo bản sao và không bao giờ thay đổi state gốc. Code ngắn hơn cách spread thủ công, đặc biệt khi update object lồng sâu. |
+| **Derived State + `useMemo`** | Thay vì tạo state mới (`useState`) cho giá trị có thể tính từ state khác, dùng `useMemo` để tính khi cần. Giảm số lượng state, tránh state không đồng bộ. |
+| **`ExtendedPurchase`** | Pattern thêm UI-only field vào data type từ server. Server không biết `checked` hay `disabled` — đây là client-side state. Tách biệt data layer và UI layer. |

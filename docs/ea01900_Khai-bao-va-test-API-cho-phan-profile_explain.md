@@ -1,32 +1,51 @@
 # ea01900 — feat: Khai báo và test API cho phần profile
 
-## 🎯 Tổng Quan
+## Tổng Quan
 
-Commit này làm 4 việc chính cho phần **Profile**:
+Commit này là bước **chuẩn bị nền tảng** cho tính năng Profile. Nó chưa làm giao diện form, nhưng cung cấp đầy đủ "nguyên liệu" để các commit sau có thể xây dựng lên:
 
-1. Tạo file API riêng cho user: lấy profile, cập nhật profile, upload avatar.
-2. Sửa lại kiểu dữ liệu `User` để phù hợp hơn với dữ liệu thật từ backend.
-3. Sửa lỗi chính tả ở route `historyPurchase`.
-4. Thêm route cho trang `HistoryPurchase` vào hệ thống router.
-
-> 💡 Có thể hiểu đơn giản: commit này đang **chuẩn bị dữ liệu và đường dẫn** để những commit sau có thể làm form Profile thật.
+1. Tạo file API riêng cho user — gom các hàm gọi server liên quan đến user vào một chỗ.
+2. Sửa lại kiểu dữ liệu `User` cho khớp với dữ liệu thật từ backend.
+3. Sửa lỗi chính tả tên route `historyPurchase`.
+4. Thêm route `/user/purchase` vào hệ thống router.
 
 ---
 
-## 📁 Tổng Quan Các File Thay Đổi
+## Các File Thay Đổi
 
 | File | Loại thay đổi | Vai trò |
 |------|---------------|---------|
 | `src/apis/user.api.ts` | Tạo mới | Chứa các hàm gọi API cho user |
 | `src/types/user.type.ts` | Sửa | Cập nhật kiểu dữ liệu `User` |
-| `src/constants/path.ts` | Sửa | Đổi `hitoryPurchase` thành `historyPurchase` |
+| `src/constants/path.ts` | Sửa | Đổi `hitoryPurchase` → `historyPurchase` |
 | `src/useRouteElements.tsx` | Sửa | Thêm route `/user/purchase` |
 
 ---
 
-## 📁 1. `src/apis/user.api.ts` — Tạo File API Riêng Cho User
+## 1. `src/apis/user.api.ts` — Tạo File API Riêng Cho User
 
-```ts
+### Tại sao cần file API riêng?
+
+**Cách làm sai** — viết thẳng `http.get(...)` trong component:
+
+```tsx
+// Không nên làm thế này
+export default function Profile() {
+  useEffect(() => {
+    http.get('me').then(res => setProfile(res.data.data))
+  }, [])
+}
+```
+
+Cách này có vấn đề:
+- Nếu endpoint `me` đổi tên thành `profile`, phải tìm và sửa ở tất cả component đang dùng nó.
+- Nhiều component cùng gọi chung một API nhưng mỗi nơi viết lại từ đầu → code lặp và khó bảo trì.
+
+**Cách làm đúng** — tạo file API riêng:
+
+```typescript
+// src/apis/user.api.ts
+
 const userApi = {
   getProfile() {
     return http.get<SuccessResponse<User>>('me')
@@ -42,243 +61,211 @@ const userApi = {
     })
   }
 }
+
+export default userApi
 ```
 
-### File này dùng để làm gì?
+Khi đó component chỉ cần gọi `userApi.getProfile()` mà không cần biết URL thật là gì. Đây là pattern **Service Layer** — gom toàn bộ logic giao tiếp với server vào một lớp riêng biệt.
 
-Trước đây phần Profile chưa có chỗ riêng để gọi API. Commit này tạo ra `userApi` để gom tất cả API liên quan đến user vào một chỗ.
-
-### Có 3 hàm chính:
+### Giải thích 3 hàm trong `userApi`
 
 #### `getProfile()`
 
-```ts
-return http.get<SuccessResponse<User>>('me')
+```typescript
+getProfile() {
+  return http.get<SuccessResponse<User>>('me')
+}
 ```
 
-Hàm này gọi API lấy thông tin user đang đăng nhập.
+Gọi `GET /me` để lấy thông tin của user đang đăng nhập. Server nhận request, đọc access token trong header Authorization, tra cứu user tương ứng, rồi trả về profile của họ.
 
-Ví dụ:
-
-```text
-User đã đăng nhập
-   ↓
-Frontend gọi GET /me
-   ↓
+Luồng hoạt động:
+```
+Frontend gửi GET /me (kèm access_token trong header)
+    ↓
+Backend giải mã token → biết user là ai
+    ↓
 Backend trả về profile của user đó
 ```
 
 #### `updateProfile(body)`
 
-```ts
-return http.put<SuccessResponse<User>>('user', body)
-```
-
-Hàm này dùng để gửi dữ liệu mới lên server khi user chỉnh sửa profile.
-
-Ví dụ:
-
-```text
-User sửa tên, địa chỉ, số điện thoại
-   ↓
-Frontend gọi PUT /user
-   ↓
-Backend cập nhật thông tin mới
-```
-
-#### `uploadAvatar(body)`
-
-```ts
-return http.post<SuccessResponse<string>>('user/upload-avatar', body, {
-  headers: {
-    'Content-Type': 'multipart/form-data'
-  }
-})
-```
-
-Hàm này dùng để upload ảnh đại diện.
-
-Vì upload file nên không gửi JSON bình thường, mà phải dùng:
-
-- `FormData`
-- `multipart/form-data`
-
-### Tại sao nên tách thành file `user.api.ts`?
-
-Nếu sau này viết thẳng `http.get(...)` trong component thì component sẽ rất rối.
-
-Tách riêng file API giúp:
-
-1. Dễ đọc hơn.
-2. Dễ tái sử dụng ở nhiều nơi.
-3. Dễ bảo trì nếu endpoint thay đổi.
-
----
-
-## 📁 2. `BodyUpdateProfile` — Chỉ Cho Phép Gửi Những Field Cần Thiết
-
-```ts
-interface BodyUpdateProfile extends Omit<User, '_id' | 'roles' | 'createdAt' | 'updatedAt' | 'email'> {
-  password?: string
-  newPassword?: string
+```typescript
+updateProfile(body: BodyUpdateProfile) {
+  return http.put<SuccessResponse<User>>('user', body)
 }
 ```
 
-### Ý nghĩa đoạn này
+Gọi `PUT /user` để cập nhật thông tin profile. Phương thức `PUT` thường dùng để **thay thế hoàn toàn** resource (khác với `PATCH` chỉ cập nhật một phần).
 
-`User` là kiểu dữ liệu đầy đủ của một người dùng. Nhưng khi update profile, không phải field nào cũng được phép gửi lên server.
+#### `uploadAvatar(body)`
 
-Ví dụ:
-
-- Không cần gửi `_id`
-- Không cần gửi `createdAt`
-- Không cần gửi `updatedAt`
-- Không cần gửi `roles`
-- `email` thường không sửa ở form profile
-
-Nên tác giả dùng `Omit<...>` để bỏ đi các field không cần thiết.
-
-### Hiểu đơn giản:
-
-```text
-User đầy đủ            → dữ liệu đọc từ backend
-BodyUpdateProfile      → dữ liệu được phép gửi lên khi update
+```typescript
+uploadAvatar(body: FormData) {
+  return http.post<SuccessResponse<string>>('user/upload-avatar', body, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+}
 ```
 
-Đây là cách viết rất tốt vì tránh gửi nhầm dữ liệu thừa.
+Upload ảnh đại diện lên server. Khác với các request thông thường gửi JSON, upload file phải dùng định dạng `multipart/form-data`. Header `Content-Type` cần được set tường minh để server biết cách parse request body.
+
+**Tại sao return type là `SuccessResponse<string>` chứ không phải `SuccessResponse<User>`?**
+
+Vì API upload avatar chỉ trả về **tên file** trên server (ví dụ: `"abc123-avatar.png"`), không phải toàn bộ User object. Tên file này sẽ được dùng tiếp ở bước update profile.
 
 ---
 
-## 📁 3. `src/types/user.type.ts` — Sửa Kiểu Dữ Liệu User
+## 2. `BodyUpdateProfile` — Kiểu Dữ Liệu Cho Request Cập Nhật
+
+```typescript
+interface BodyUpdateProfile extends Omit<User, '_id' | 'roles' | 'createdAt' | 'updatedAt' | 'email'> {
+  password?: string
+  new_password?: string
+}
+```
+
+### Tại sao không gửi toàn bộ `User` object lên server?
+
+**`User`** là kiểu dữ liệu đầy đủ bao gồm `_id`, `roles`, `createdAt`, `updatedAt`, `email`... Nhưng khi cập nhật profile, một số field không nên (hoặc không được phép) sửa:
+
+| Field | Lý do không gửi |
+|-------|----------------|
+| `_id` | ID do server tạo, không bao giờ được sửa |
+| `roles` | Quyền hạn user, chỉ admin mới được đổi |
+| `createdAt` | Timestamp tự động, server tự quản lý |
+| `updatedAt` | Timestamp tự động, server tự cập nhật |
+| `email` | Thường không cho đổi email qua form profile |
+
+**`Omit<User, '_id' | 'roles' | ...>`** tạo ra một type mới bằng cách lấy `User` rồi bỏ đi các field được liệt kê. Đây là cách TypeScript để tái sử dụng type mà không phải viết lại từ đầu.
+
+Sau đó extend thêm 2 field riêng cho trường hợp đổi mật khẩu:
+
+```typescript
+{
+  password?: string      // Mật khẩu hiện tại (cần để xác minh danh tính)
+  new_password?: string  // Mật khẩu mới
+}
+```
+
+---
+
+## 3. `src/types/user.type.ts` — Sửa Kiểu Dữ Liệu `User`
 
 ### Trước commit:
 
-```ts
-name: string
-date_of_birth: null
-address: string
-phone: string
+```typescript
+interface User {
+  name: string          // Bắt buộc phải có
+  date_of_birth: null   // Luôn là null
+  address: string       // Bắt buộc phải có
+  phone: string         // Bắt buộc phải có
+}
 ```
 
 ### Sau commit:
 
-```ts
-name?: string
-date_of_birth?: string
-avatar?: string
-address?: string
-phone?: string
+```typescript
+interface User {
+  name?: string         // Có thể undefined
+  date_of_birth?: string // Có thể undefined, và là string (ISO date)
+  avatar?: string       // Có thể undefined (field mới)
+  address?: string      // Có thể undefined
+  phone?: string        // Có thể undefined
+}
 ```
 
-### Vì sao phải sửa?
+### Tại sao phải thêm dấu `?` (optional)?
 
-Vì dữ liệu profile ngoài thực tế có thể chưa đầy đủ.
+Khi user **mới tạo tài khoản**, họ chưa nhập tên, địa chỉ, số điện thoại, chưa upload avatar, chưa chọn ngày sinh. Lúc này server trả về các field này với giá trị `undefined` hoặc `null`.
 
-Ví dụ user mới tạo tài khoản:
+Nếu type khai báo `name: string` (bắt buộc), TypeScript sẽ tin rằng `name` luôn có giá trị. Khi code viết `profile.name.toUpperCase()`, TypeScript không báo lỗi — nhưng khi chạy thật, `name` là `undefined` → **crash runtime**.
 
-- chưa nhập tên
-- chưa nhập địa chỉ
-- chưa có số điện thoại
-- chưa upload avatar
-- chưa chọn ngày sinh
+Khai báo `name?: string` (optional) buộc lập trình viên phải kiểm tra: `profile.name?.toUpperCase()` hoặc `profile.name ? profile.name : 'Chưa có tên'`. TypeScript giúp **phát hiện lỗi tại compile time** thay vì runtime.
 
-Nếu vẫn để các field này là bắt buộc thì TypeScript sẽ hiểu rằng lúc nào chúng cũng có dữ liệu, trong khi thực tế có thể là `undefined`.
+### Tại sao `date_of_birth` đổi từ `null` sang `string?`
 
-### `date_of_birth` vì sao đổi sang `string?`
+Backend thường trả ngày sinh dưới dạng **chuỗi ISO 8601**:
 
-Backend thường trả ngày sinh ở dạng chuỗi, ví dụ:
-
-```text
-1999-10-22T00:00:00.000Z
+```
+"1999-10-22T00:00:00.000Z"
 ```
 
-Frontend sau đó mới đổi chuỗi này sang `Date` nếu cần.
+Frontend sẽ nhận chuỗi này rồi chuyển thành `Date` object khi cần tính toán hoặc hiển thị:
 
-Nên đổi từ `null` sang `string?` là hợp lý hơn với dữ liệu thật.
+```typescript
+new Date(profile.date_of_birth!)  // "1999-10-22T..." → Date object
+```
 
-### `avatar?: string` là gì?
+### Tại sao thêm field `avatar`?
 
-Thêm field `avatar` để lưu đường dẫn ảnh đại diện của user.
+Chức năng upload ảnh đại diện sẽ được làm trong các commit sau. Field này cần được khai báo trước để TypeScript biết `User` object có thể chứa `avatar`.
 
 ---
 
-## 📁 4. `src/constants/path.ts` — Sửa Lỗi Chính Tả Tên Route
+## 4. `src/constants/path.ts` — Sửa Lỗi Chính Tả
 
-```ts
-- hitoryPurchase: '/user/purchase',
-+ historyPurchase: '/user/purchase',
+```diff
+- hitoryPurchase: '/user/purchase'
++ historyPurchase: '/user/purchase'
 ```
 
-### Đây là thay đổi nhỏ nhưng cần thiết
+**"hitoryPurchase"** bị thiếu chữ "s" trong "history". Đây là lỗi chính tả đơn giản nhưng quan trọng vì:
 
-`hitoryPurchase` là viết sai chính tả. Đúng phải là `historyPurchase`.
+- Code tự đề xuất (autocomplete) sẽ hiện `hitoryPurchase` — người đọc dễ bị nhầm
+- Nếu ai không để ý dùng `path.hitoryPurchase` ở nơi khác, khi đổi tên sẽ phải tìm và sửa hết
 
-Giá trị URL không đổi:
-
-```ts
-'/user/purchase'
-```
-
-Chỉ đổi tên key để:
-
-1. Dễ đọc hơn
-2. Ít nhầm hơn khi import ở nơi khác
-3. Code nhìn sạch hơn
+**Giá trị URL không đổi** — vẫn là `/user/purchase`. Chỉ đổi tên **key** trong object `path`.
 
 ---
 
-## 📁 5. `src/useRouteElements.tsx` — Thêm Route Cho Lịch Sử Mua Hàng
-
-Commit này thêm import:
+## 5. `src/useRouteElements.tsx` — Thêm Route Cho Lịch Sử Mua Hàng
 
 ```tsx
 import HistoryPurchase from '~/pages/User/pages/HistoryPurchase'
-```
 
-Và thêm route:
-
-```tsx
+// Bên trong mảng children của ProtectedRoute:
 {
-  path: path.historyPurchase,
+  path: path.historyPurchase,   // '/user/purchase'
   element: <HistoryPurchase />
 }
 ```
 
-### Tại sao cần thêm đoạn này?
+### React Router hoạt động thế nào?
 
-Ở commit trước, file `HistoryPurchase` đã được tạo rồi, nhưng nếu không khai báo route thì khi truy cập URL tương ứng, React Router sẽ không biết phải render trang nào.
+React Router duy trì một danh sách **route definitions** — mỗi route là sự kết hợp giữa một URL pattern và một component tương ứng. Khi URL trình duyệt thay đổi, Router tìm route phù hợp và render component đó.
 
-### Sau commit này:
+File `HistoryPurchase.tsx` đã tồn tại từ commit trước (là component placeholder `<div>HistoryPurchase</div>`), nhưng nếu không khai báo route thì Router không biết "URL `/user/purchase` cần render component nào" → URL đó sẽ không match và hiện trang 404.
 
-```text
+Sau commit này, hệ thống route cho nhóm User hoàn chỉnh:
+
+```
 /user/profile   → render Profile
 /user/password  → render ChangePassword
-/user/purchase  → render HistoryPurchase
+/user/purchase  → render HistoryPurchase  ← Mới thêm
 ```
-
-Nghĩa là trang Lịch sử mua hàng đã chính thức được nối vào hệ thống route.
 
 ---
 
-## 🔗 Luồng Hoạt Động Sau Commit
+## Luồng Hoạt Động Sau Commit
 
-```text
-1. App đã có route /user/purchase
-2. Module user đã có file API riêng là userApi
-3. Kiểu dữ liệu User đã phù hợp hơn với dữ liệu thật
-4. Những commit sau có thể dùng userApi.getProfile() để đổ dữ liệu lên form
 ```
-
-Commit này chưa làm form Profile hoàn chỉnh, nhưng nó là bước nền quan trọng để làm được việc đó.
+1. App đã có route /user/purchase → user có thể truy cập trang Lịch sử mua hàng
+2. userApi.getProfile() đã sẵn sàng → commit sau dùng để lấy và hiển thị dữ liệu form
+3. Kiểu dữ liệu User đã phản ánh đúng dữ liệu thật → TypeScript không báo lỗi giả
+4. Lỗi chính tả path.historyPurchase đã sửa → code nhất quán
+```
 
 ---
 
-## 📌 Kiến Thức Mới
+## Kiến Thức Mới
 
 | Khái niệm | Giải thích |
 |-----------|-----------|
-| **API riêng theo module** | Mỗi module có 1 file API riêng như `user.api.ts`, giúp code gọn và dễ quản lý |
-| **`Omit<T, K>`** | Lấy một type cũ rồi bỏ đi một số field không muốn dùng |
-| **Optional field (`?`)** | Field có thể có hoặc không có dữ liệu |
-| **`FormData`** | Kiểu dữ liệu dùng để gửi file lên server |
-| **Khai báo route** | Muốn truy cập được một trang bằng URL thì phải thêm route trong router |
+| **Service Layer (API module)** | Gom tất cả hàm gọi API liên quan đến một tính năng vào một file riêng. Component chỉ gọi hàm trong module đó, không biết URL hay HTTP method cụ thể. Khi API thay đổi, chỉ sửa một chỗ duy nhất. |
+| **`Omit<T, K>`** | TypeScript utility type để tạo type mới bằng cách bỏ đi một số field từ type gốc. Tránh việc phải khai báo lại từ đầu khi type mới chỉ khác type cũ một vài field. |
+| **Optional field (`?`)** | Field có dấu `?` có thể là `undefined`. Buộc lập trình viên kiểm tra trước khi dùng, giúp phát hiện lỗi tại compile time thay vì runtime. |
+| **`FormData`** | API browser dùng để gửi dữ liệu dạng `multipart/form-data` — bắt buộc khi upload file. Dữ liệu không gửi dạng JSON mà gửi dạng binary stream. |
+| **Khai báo route** | Muốn truy cập được một trang bằng URL thì phải đăng ký route trong file cấu hình router. Tạo component mà không có route tương ứng thì component đó vô hình với người dùng. |
